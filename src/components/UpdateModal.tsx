@@ -96,7 +96,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           <button
             onClick={onClose}
             disabled={isInstalling}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
+            className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
@@ -250,7 +250,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                 type="button"
                 onClick={onClose}
                 disabled={isInstalling}
-                className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 Close
               </button>
