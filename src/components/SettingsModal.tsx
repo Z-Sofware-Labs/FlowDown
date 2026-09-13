@@ -465,7 +465,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
               <div>
                 <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  Current Version: <span className="font-mono text-blue-600 dark:text-blue-400">v1.1.0</span>
+                  Current Version: <span className="font-mono text-blue-600 dark:text-blue-400">v1.0.1</span>
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   Channel: GitHub Releases (latest.json)

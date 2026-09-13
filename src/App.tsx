@@ -169,7 +169,14 @@ export default function App() {
     } catch (err: any) {
       console.warn('[FlowDown] Update check failed:', err);
       if (showModalIfNoUpdate) {
-        addToast('Update Check Failed', err?.message || 'Could not connect to GitHub Releases.', 'error');
+        const errorMsg = String(err?.message || err || '');
+        let userMessage = 'Could not connect to GitHub Releases.';
+        if (errorMsg.includes('404') || errorMsg.toLowerCase().includes('not found')) {
+          userMessage = 'No release manifest found on GitHub. FlowDown is currently up to date.';
+        } else if (errorMsg) {
+          userMessage = errorMsg;
+        }
+        addToast('Update Check Failed', userMessage, 'error');
       }
     } finally {
       setIsCheckingUpdate(false);
