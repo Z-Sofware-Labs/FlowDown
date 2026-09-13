@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "publisher": "Z Software Labs",
     "copyright": "Copyright © 2026 Z Software Labs. All rights reserved.",
