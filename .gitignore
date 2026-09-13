@@ -10,3 +10,4 @@ coverage/
 *.key
 src-tauri/target/
 target/
+bun.lock*
