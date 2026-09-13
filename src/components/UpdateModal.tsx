@@ -63,12 +63,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
     }
   };
 
-  // Automatically start downloading and installing as soon as an update is found
-  useEffect(() => {
-    if (isOpen && updateInfo?.available && updateInfo.rawUpdate && !isInstalling && !isReadyToRestart && !installError) {
-      void handleInstall();
-    }
-  }, [isOpen, updateInfo?.available, updateInfo?.version]);
+  // User initiates the update download and installation deliberately via the Install button
 
   const handleRestart = async () => {
     try {
@@ -118,12 +113,21 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
                   <Tag className="h-3 w-3" />
                   <span>Update Available</span>
                 </span>
-                {updateInfo?.date && (
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1">
-                    <Clock className="h-3 w-3" />
-                    <span>{new Date(updateInfo.date).toLocaleDateString()}</span>
-                  </span>
-                )}
+                {(() => {
+                  if (!updateInfo?.date) return null;
+                  try {
+                    const parsed = new Date(updateInfo.date);
+                    if (isNaN(parsed.getTime())) return null;
+                    return (
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1">
+                        <Clock className="h-3 w-3" />
+                        <span>{parsed.toLocaleDateString()}</span>
+                      </span>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
               </div>
 
               <div className="flex items-center space-x-3 text-sm">

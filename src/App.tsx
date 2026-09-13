@@ -51,6 +51,7 @@ import {
   updateTorrentEngineConfigNative,
 } from './utils/tauri';
 import { checkForUpdate, AppUpdateInfo } from './utils/updater';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { logger } from './utils/logger';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -1780,13 +1781,15 @@ export default function App() {
           isCheckingUpdates={isCheckingUpdate}
         />
 
-        <UpdateModal
-          isOpen={isUpdateModalOpen}
-          onClose={() => setIsUpdateModalOpen(false)}
-          updateInfo={appUpdateInfo}
-          onCheckAgain={() => handleCheckForUpdates(true)}
-          isChecking={isCheckingUpdate}
-        />
+        <ErrorBoundary fallbackTitle="Software Updates Error" onReset={() => setIsUpdateModalOpen(false)}>
+          <UpdateModal
+            isOpen={isUpdateModalOpen}
+            onClose={() => setIsUpdateModalOpen(false)}
+            updateInfo={appUpdateInfo}
+            onCheckAgain={() => handleCheckForUpdates(true)}
+            isChecking={isCheckingUpdate}
+          />
+        </ErrorBoundary>
       </React.Suspense>
 
       {contextMenu && (
