@@ -1,0 +1,6 @@
+{
+  "name": "Download Manager",
+  "description": "A feature-rich interactive download manager mockup with active transfers, speed controls, download simulation, categories, and queue management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

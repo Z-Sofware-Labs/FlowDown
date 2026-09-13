@@ -1,0 +1,37 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window to access the filesystem and open paths",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-write-text-file",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-mkdir",
+    "fs:scope-appdata",
+    "fs:scope-download",
+    "fs:scope-download-recursive",
+    "shell:allow-open",
+    "opener:default",
+    "http:default",
+    "upload:default",
+    "window-state:default",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:default",
+    "process:allow-restart",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
+    }
+  ]
+}
