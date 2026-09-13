@@ -1,7 +1,7 @@
 [package]
 name = "wanderlust"
-version = "1.0.1"
-description = "FlowDown Download Manager Desktop App"
+version = "1.0.2"
+description = "FlowDown Download Manager & P2P Engine Desktop App"
 authors = ["Z Software Labs"]
 edition = "2021"
 
