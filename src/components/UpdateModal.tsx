@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Sparkles,
@@ -62,6 +62,13 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
       setIsInstalling(false);
     }
   };
+
+  // Automatically start downloading and installing as soon as an update is found
+  useEffect(() => {
+    if (isOpen && updateInfo?.available && updateInfo.rawUpdate && !isInstalling && !isReadyToRestart && !installError) {
+      void handleInstall();
+    }
+  }, [isOpen, updateInfo?.available, updateInfo?.version]);
 
   const handleRestart = async () => {
     try {
