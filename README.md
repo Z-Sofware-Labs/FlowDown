@@ -47,7 +47,7 @@ FlowDown is designed as a **manual-style download manager**:
 
 ```bash
 # Clone the repository
-git clone https://github.com/z-software-labs/flowdown.git
+git clone https://github.com/Z-Sofware-Labs/FlowDown.git
 cd flowdown
 
 # Install dependencies
