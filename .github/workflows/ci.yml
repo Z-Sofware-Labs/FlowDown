@@ -54,5 +54,8 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Build frontend
+        run: npm run build
+
       - name: Cargo Check
         run: cargo check --manifest-path src-tauri/Cargo.toml
