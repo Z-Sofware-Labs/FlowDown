@@ -24,7 +24,7 @@ export async function checkForUpdate(): Promise<AppUpdateInfo> {
   if (!isTauri()) {
     return {
       available: false,
-      currentVersion: '1.0.2',
+      currentVersion: '1.0.3',
     };
   }
 
@@ -33,7 +33,7 @@ export async function checkForUpdate(): Promise<AppUpdateInfo> {
     if (!update) {
       return {
         available: false,
-        currentVersion: '1.0.2',
+        currentVersion: '1.0.3',
       };
     }
 

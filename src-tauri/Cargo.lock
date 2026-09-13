@@ -5954,7 +5954,7 @@ dependencies = [
 
 [[package]]
 name = "wanderlust"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "librqbit",
  "librqbit-core",
