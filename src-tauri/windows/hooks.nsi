@@ -69,7 +69,8 @@ FunctionEnd
     ReadRegStr $0 HKLM "Software\Classes\magnet" ""
     ${If} $0 == "URL:Magnet Protocol"
       ReadRegStr $1 HKLM "Software\Classes\magnet\shell\open\command" ""
-      ${If} $1 == '"$INSTDIR\wanderlust.exe" "%1"'
+      ${If} $1 == '"$INSTDIR\flowdown.exe" "%1"'
+      ${OrIf} $1 == '"$INSTDIR\wanderlust.exe" "%1"'
         DeleteRegKey HKLM "Software\Classes\magnet"
       ${EndIf}
     ${EndIf}
@@ -85,14 +86,14 @@ FlowDownAssociationPreinstallDone:
     WriteRegStr HKLM "Software\Classes\.torrent" "" "FlowDown.Torrent"
     WriteRegStr HKLM "Software\Classes\FlowDown.Torrent" "" "BitTorrent File"
     WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$INSTDIR\torrent.ico"
-    WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\wanderlust.exe" "%1"'
+    WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
   ${EndIf}
 
   ${If} $FlowDownAssociateMagnet == ${BST_CHECKED}
     WriteRegStr HKLM "Software\Classes\magnet" "" "URL:Magnet Protocol"
     WriteRegStr HKLM "Software\Classes\magnet" "URL Protocol" ""
     WriteRegStr HKLM "Software\Classes\magnet\DefaultIcon" "" "$INSTDIR\magnet.ico"
-    WriteRegStr HKLM "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\wanderlust.exe" "%1"'
+    WriteRegStr HKLM "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
   ${EndIf}
 
   System::Call 'shell32::SHChangeNotify(i, i, i, i) (0x08000000, 0, 0, 0)'
@@ -107,7 +108,8 @@ FlowDownAssociationPreinstallDone:
   ${EndIf}
 
   ReadRegStr $0 HKLM "Software\Classes\magnet\shell\open\command" ""
-  ${If} $0 == '"$INSTDIR\wanderlust.exe" "%1"'
+  ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
+  ${OrIf} $0 == '"$INSTDIR\wanderlust.exe" "%1"'
     DeleteRegKey HKLM "Software\Classes\magnet"
   ${EndIf}
 

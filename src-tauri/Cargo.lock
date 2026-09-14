@@ -1325,6 +1325,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "flowdown"
+version = "1.0.3"
+dependencies = [
+ "librqbit",
+ "librqbit-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-http",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tauri-plugin-upload",
+ "tauri-plugin-window-state",
+ "tokio",
+ "winreg 0.52.0",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5950,30 +5974,6 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
-]
-
-[[package]]
-name = "wanderlust"
-version = "1.0.3"
-dependencies = [
- "librqbit",
- "librqbit-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-http",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tauri-plugin-upload",
- "tauri-plugin-window-state",
- "tokio",
- "winreg 0.52.0",
 ]
 
 [[package]]
