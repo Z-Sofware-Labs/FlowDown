@@ -87,7 +87,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({
 
         {/* Version & optional update check */}
         <div className="mt-0.5 flex items-center justify-center space-x-1.5 text-xs text-slate-400">
-          <span>Version 1.0.4</span>
+          <span>Version 1.0.5</span>
           {onCheckForUpdates && (
             <>
               <span className="text-slate-600">•</span>

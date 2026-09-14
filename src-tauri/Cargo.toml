@@ -1,6 +1,6 @@
 [package]
 name = "flowdown"
-version = "1.0.4"
+version = "1.0.5"
 description = "FlowDown Download Manager & P2P Engine Desktop App"
 authors = ["Z Software Labs"]
 edition = "2021"
