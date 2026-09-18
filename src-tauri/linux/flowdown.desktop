@@ -5,6 +5,6 @@ Comment={{comment}}
 Exec={{exec}} %U
 Icon={{icon}}
 Terminal=false
-Categories={{categories}};
+Categories=Network;FileTransfer;P2P;
 MimeType=application/x-bittorrent;x-scheme-handler/magnet;
 StartupWMClass={{name}}
