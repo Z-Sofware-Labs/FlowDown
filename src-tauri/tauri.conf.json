@@ -28,7 +28,6 @@
   },
   "bundle": {
     "active": true,
-    "category": "Network",
     "createUpdaterArtifacts": true,
     "targets": "all",
     "publisher": "Z Software Labs",
