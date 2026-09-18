@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "flowdown"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
  "librqbit",
  "librqbit-core",

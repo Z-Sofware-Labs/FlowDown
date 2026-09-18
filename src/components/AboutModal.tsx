@@ -26,15 +26,11 @@ export const ZSoftwareLabsLogo: React.FC<{ className?: string }> = ({
 interface AboutModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCheckForUpdates?: () => void;
-  isCheckingUpdates?: boolean;
 }
 
 export const AboutModal: React.FC<AboutModalProps> = ({
   isOpen,
   onClose,
-  onCheckForUpdates,
-  isCheckingUpdates = false,
 }) => {
   if (!isOpen) return null;
 
@@ -60,7 +56,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({
           <span className="text-xs font-semibold text-slate-300">About FlowDown</span>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -85,21 +81,9 @@ export const AboutModal: React.FC<AboutModalProps> = ({
           FlowDown
         </h2>
 
-        {/* Version & optional update check */}
+        {/* Version */}
         <div className="mt-0.5 flex items-center justify-center space-x-1.5 text-xs text-slate-400">
-          <span>Version 1.0.5</span>
-          {onCheckForUpdates && (
-            <>
-              <span className="text-slate-600">•</span>
-              <button
-                onClick={onCheckForUpdates}
-                disabled={isCheckingUpdates}
-                className="text-[11px] text-blue-400 hover:text-blue-300 hover:underline disabled:opacity-50 cursor-pointer"
-              >
-                {isCheckingUpdates ? 'Checking...' : 'Check Updates'}
-              </button>
-            </>
-          )}
+          <span>Version 1.0.6</span>
         </div>
 
         {/* Copyright notice with Z Software Labs Logo */}

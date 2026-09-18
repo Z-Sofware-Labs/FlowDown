@@ -230,14 +230,6 @@ export default function App() {
     }
   }, [downloads]);
 
-  // Silently check for updates in background on app startup (3s delay)
-  useEffect(() => {
-    if (!isTauriEnvironment()) return;
-    const timer = setTimeout(() => {
-      void handleCheckForUpdates(false);
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, []);
 
   // Handle .torrent files and magnet: links opened by the operating system.
   // Cold-start arguments are read from Rust state; subsequent invocations are
@@ -1777,8 +1769,6 @@ export default function App() {
         <AboutModal
           isOpen={isAboutOpen}
           onClose={() => setIsAboutOpen(false)}
-          onCheckForUpdates={() => void handleCheckForUpdates(true)}
-          isCheckingUpdates={isCheckingUpdate}
         />
 
         <ErrorBoundary fallbackTitle="Software Updates Error" onReset={() => setIsUpdateModalOpen(false)}>

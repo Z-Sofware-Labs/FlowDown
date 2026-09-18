@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FlowDown",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "identifier": "com.flowdown.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -40,7 +40,9 @@
     ],
     "resources": {
       "icons/magnet.ico": "magnet.ico",
-      "icons/torrent.ico": "torrent.ico"
+      "icons/torrent.ico": "torrent.ico",
+      "icons/magnet.icns": "magnet.icns",
+      "icons/torrent.icns": "torrent.icns"
     },
     "windows": {
       "nsis": {
@@ -54,10 +56,50 @@
     },
     "linux": {
       "deb": {
-        "desktopTemplate": "linux/flowdown.desktop"
+        "desktopTemplate": "linux/flowdown.desktop",
+        "files": {
+          "/usr/share/icons/hicolor/16x16/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/16x16/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/16x16/mimetypes/x-bittorrent.png": "linux/icons/hicolor/16x16/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/16x16/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/16x16/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/32x32/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/x-bittorrent.png": "linux/icons/hicolor/32x32/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/32x32/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/48x48/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/x-bittorrent.png": "linux/icons/hicolor/48x48/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/48x48/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/64x64/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/x-bittorrent.png": "linux/icons/hicolor/64x64/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/64x64/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/128x128/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/x-bittorrent.png": "linux/icons/hicolor/128x128/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/128x128/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/256x256/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/x-bittorrent.png": "linux/icons/hicolor/256x256/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/256x256/mimetypes/x-scheme-handler-magnet.png"
+        }
       },
       "rpm": {
-        "desktopTemplate": "linux/flowdown.desktop"
+        "desktopTemplate": "linux/flowdown.desktop",
+        "files": {
+          "/usr/share/icons/hicolor/16x16/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/16x16/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/16x16/mimetypes/x-bittorrent.png": "linux/icons/hicolor/16x16/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/16x16/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/16x16/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/32x32/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/x-bittorrent.png": "linux/icons/hicolor/32x32/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/32x32/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/48x48/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/x-bittorrent.png": "linux/icons/hicolor/48x48/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/48x48/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/64x64/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/x-bittorrent.png": "linux/icons/hicolor/64x64/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/64x64/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/128x128/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/x-bittorrent.png": "linux/icons/hicolor/128x128/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/128x128/mimetypes/x-scheme-handler-magnet.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/application-x-bittorrent.png": "linux/icons/hicolor/256x256/mimetypes/application-x-bittorrent.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/x-bittorrent.png": "linux/icons/hicolor/256x256/mimetypes/x-bittorrent.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/x-scheme-handler-magnet.png": "linux/icons/hicolor/256x256/mimetypes/x-scheme-handler-magnet.png"
+        }
       }
     }
   },
