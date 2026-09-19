@@ -115,6 +115,24 @@ async function generateLinuxMimeIcons(sharpImage, mimeBaseName, outDir) {
   }
 }
 
+// 4. Generate Linux Breeze theme mimetype icons (KDE Plasma)
+// KDE Plasma Breeze/Breeze-Dark specification:
+// /usr/share/icons/{breeze,breeze-dark}/mimetypes/{size}/{name}.png
+async function generateBreezeMimeIcons(sharpImage, mimeBaseName, themeName) {
+  const sizes = [16, 22, 24, 32, 64];
+  for (const s of sizes) {
+    const targetDir = path.join('src-tauri/linux/icons', themeName, 'mimetypes', `${s}`);
+    fs.mkdirSync(targetDir, { recursive: true });
+    const targetPath = path.join(targetDir, `${mimeBaseName}.png`);
+    await sharpImage
+      .clone()
+      .resize(s, s, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toFile(targetPath);
+    console.log(`Generated Breeze icon: ${targetPath}`);
+  }
+}
+
 async function main() {
   const torrentSharp = extractRgbaFromIco('src-tauri/icons/torrent.ico');
   const magnetSharp = extractRgbaFromIco('src-tauri/icons/magnet.ico');
@@ -128,6 +146,12 @@ async function main() {
   await generateLinuxMimeIcons(torrentSharp, 'application-x-bittorrent', linuxIconsBase);
   await generateLinuxMimeIcons(torrentSharp, 'x-bittorrent', linuxIconsBase);
   await generateLinuxMimeIcons(magnetSharp, 'x-scheme-handler-magnet', linuxIconsBase);
+
+  // Generate Linux Breeze & Breeze Dark icons for KDE
+  for (const theme of ['breeze', 'breeze-dark']) {
+    await generateBreezeMimeIcons(torrentSharp, 'application-x-bittorrent', theme);
+    await generateBreezeMimeIcons(torrentSharp, 'x-bittorrent', theme);
+  }
 
   console.log('All platform icon assets successfully generated.');
 }
