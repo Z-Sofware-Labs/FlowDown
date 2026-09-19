@@ -1,63 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import sharp from 'sharp';
 
-// 1. Extract raw 32-bit BGRA bitmap from Windows .ico and convert to RGBA Sharp image
-function extractRgbaFromIco(icoPath) {
-  const buf = fs.readFileSync(icoPath);
-  const count = buf.readUInt16LE(4);
-  let bestEntry = null;
-  let maxDim = 0;
-  for (let i = 0; i < count; i++) {
-    const offset = 6 + i * 16;
-    const w = buf[offset] === 0 ? 256 : buf[offset];
-    const h = buf[offset + 1] === 0 ? 256 : buf[offset + 1];
-    const size = buf.readUInt32LE(offset + 8);
-    const imgOffset = buf.readUInt32LE(offset + 12);
-    if (w >= maxDim) {
-      maxDim = w;
-      bestEntry = { w, h, size, imgOffset, data: buf.subarray(imgOffset, imgOffset + size) };
-    }
-  }
-
-  const headerSize = bestEntry.data.readUInt32LE(0);
-  const width = bestEntry.data.readInt32LE(4);
-  const height = bestEntry.data.readInt32LE(8) / 2;
-  const bpp = bestEntry.data.readUInt16LE(14);
-  if (bpp !== 32) {
-    throw new Error(`Expected 32 bpp, got ${bpp}`);
-  }
-
-  const pixelBytes = width * height * 4;
-  const rawBgra = bestEntry.data.subarray(headerSize, headerSize + pixelBytes);
-  const rgba = Buffer.alloc(pixelBytes);
-
-  for (let row = 0; row < height; row++) {
-    const srcRow = height - 1 - row;
-    for (let col = 0; col < width; col++) {
-      const srcIdx = (srcRow * width + col) * 4;
-      const dstIdx = (row * width + col) * 4;
-      rgba[dstIdx] = rawBgra[srcIdx + 2];     // R
-      rgba[dstIdx + 1] = rawBgra[srcIdx + 1]; // G
-      rgba[dstIdx + 2] = rawBgra[srcIdx];     // B
-      rgba[dstIdx + 3] = rawBgra[srcIdx + 3]; // A
-    }
-  }
-
-  return sharp(rgba, { raw: { width, height, channels: 4 } });
-}
-
-// 2. Build Apple ICNS file containing PNG payloads for modern macOS
-// OSType mappings for PNG chunks:
-// icp4: 16x16
-// icp5: 32x32
-// icp6: 64x64
-// ic07: 128x128
-// ic08: 256x256
-// ic11: 16x16@2x (32x32)
-// ic12: 32x32@2x (64x64)
-// ic13: 128x128@2x (256x256)
-async function createIcns(sharpImage, outPath) {
+// 1. Build Apple ICNS file containing PNG payloads for modern macOS
+async function createIcns(pngBuffer, outPath, sharpModule) {
   const iconDefs = [
     { type: 'icp4', size: 16 },
     { type: 'icp5', size: 32 },
@@ -73,8 +18,7 @@ async function createIcns(sharpImage, outPath) {
   let totalDataLength = 8; // 'icns' (4) + file length (4)
 
   for (const def of iconDefs) {
-    const pngBuf = await sharpImage
-      .clone()
+    const pngBuf = await sharpModule(pngBuffer)
       .resize(def.size, def.size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toBuffer();
@@ -97,17 +41,14 @@ async function createIcns(sharpImage, outPath) {
   console.log(`Generated ICNS: ${outPath} (${icnsBuffer.length} bytes)`);
 }
 
-// 3. Generate Linux hicolor theme mimetype icons
-// Freedesktop specification:
-// /usr/share/icons/hicolor/{size}x{size}/mimetypes/{name}.png
-async function generateLinuxMimeIcons(sharpImage, mimeBaseName, outDir) {
+// 2. Generate Linux hicolor theme mimetype icons
+async function generateLinuxMimeIcons(pngBuffer, mimeBaseName, outDir, sharpModule) {
   const sizes = [16, 32, 48, 64, 128, 256];
   for (const s of sizes) {
     const targetDir = path.join(outDir, `${s}x${s}`, 'mimetypes');
     fs.mkdirSync(targetDir, { recursive: true });
     const targetPath = path.join(targetDir, `${mimeBaseName}.png`);
-    await sharpImage
-      .clone()
+    await sharpModule(pngBuffer)
       .resize(s, s, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(targetPath);
@@ -115,17 +56,14 @@ async function generateLinuxMimeIcons(sharpImage, mimeBaseName, outDir) {
   }
 }
 
-// 4. Generate Linux Breeze theme mimetype icons (KDE Plasma)
-// KDE Plasma Breeze/Breeze-Dark specification:
-// /usr/share/icons/{breeze,breeze-dark}/mimetypes/{size}/{name}.png
-async function generateBreezeMimeIcons(sharpImage, mimeBaseName, themeName) {
+// 3. Generate Linux Breeze theme mimetype icons (KDE Plasma)
+async function generateBreezeMimeIcons(pngBuffer, mimeBaseName, themeName, sharpModule) {
   const sizes = [16, 22, 24, 32, 64];
   for (const s of sizes) {
     const targetDir = path.join('src-tauri/linux/icons', themeName, 'mimetypes', `${s}`);
     fs.mkdirSync(targetDir, { recursive: true });
     const targetPath = path.join(targetDir, `${mimeBaseName}.png`);
-    await sharpImage
-      .clone()
+    await sharpModule(pngBuffer)
       .resize(s, s, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toFile(targetPath);
@@ -133,27 +71,56 @@ async function generateBreezeMimeIcons(sharpImage, mimeBaseName, themeName) {
   }
 }
 
-async function main() {
-  const torrentSharp = extractRgbaFromIco('src-tauri/icons/torrent.ico');
-  const magnetSharp = extractRgbaFromIco('src-tauri/icons/magnet.ico');
+// 4. Copy Scalable SVGs
+function deployScalableSvgs() {
+  const hicolorScalable = 'src-tauri/linux/icons/hicolor/scalable/mimetypes';
+  fs.mkdirSync(hicolorScalable, { recursive: true });
+  fs.copyFileSync('src-tauri/icons/torrent.svg', path.join(hicolorScalable, 'application-x-bittorrent.svg'));
+  fs.copyFileSync('src-tauri/icons/torrent.svg', path.join(hicolorScalable, 'x-bittorrent.svg'));
+  fs.copyFileSync('src-tauri/icons/magnet.svg', path.join(hicolorScalable, 'x-scheme-handler-magnet.svg'));
 
-  // Generate macOS .icns files
-  await createIcns(torrentSharp, 'src-tauri/icons/torrent.icns');
-  await createIcns(magnetSharp, 'src-tauri/icons/magnet.icns');
-
-  // Generate Linux hicolor icons
-  const linuxIconsBase = 'src-tauri/linux/icons/hicolor';
-  await generateLinuxMimeIcons(torrentSharp, 'application-x-bittorrent', linuxIconsBase);
-  await generateLinuxMimeIcons(torrentSharp, 'x-bittorrent', linuxIconsBase);
-  await generateLinuxMimeIcons(magnetSharp, 'x-scheme-handler-magnet', linuxIconsBase);
-
-  // Generate Linux Breeze & Breeze Dark icons for KDE
   for (const theme of ['breeze', 'breeze-dark']) {
-    await generateBreezeMimeIcons(torrentSharp, 'application-x-bittorrent', theme);
-    await generateBreezeMimeIcons(torrentSharp, 'x-bittorrent', theme);
+    const breeze64 = path.join('src-tauri/linux/icons', theme, 'mimetypes', '64');
+    fs.mkdirSync(breeze64, { recursive: true });
+    fs.copyFileSync('src-tauri/icons/torrent.svg', path.join(breeze64, 'application-x-bittorrent.svg'));
+    fs.copyFileSync('src-tauri/icons/torrent.svg', path.join(breeze64, 'x-bittorrent.svg'));
+    fs.copyFileSync('src-tauri/icons/magnet.svg', path.join(breeze64, 'x-scheme-handler-magnet.svg'));
+  }
+  console.log('Deployed scalable SVGs to Hicolor, Breeze, and Breeze-Dark.');
+}
+
+async function main() {
+  let sharpModule;
+  try {
+    const imported = await import('sharp');
+    sharpModule = imported.default || imported;
+  } catch {
+    console.log('Sharp not installed; relying on Python icon generator for raster icons.');
   }
 
-  console.log('All platform icon assets successfully generated.');
+  // Always deploy SVGs
+  deployScalableSvgs();
+
+  if (sharpModule) {
+    const torrentPng = fs.readFileSync('src-tauri/icons/torrent.png');
+    const magnetPng = fs.readFileSync('src-tauri/icons/magnet.png');
+
+    await createIcns(torrentPng, 'src-tauri/icons/torrent.icns', sharpModule);
+    await createIcns(magnetPng, 'src-tauri/icons/magnet.icns', sharpModule);
+
+    const linuxIconsBase = 'src-tauri/linux/icons/hicolor';
+    await generateLinuxMimeIcons(torrentPng, 'application-x-bittorrent', linuxIconsBase, sharpModule);
+    await generateLinuxMimeIcons(torrentPng, 'x-bittorrent', linuxIconsBase, sharpModule);
+    await generateLinuxMimeIcons(magnetPng, 'x-scheme-handler-magnet', linuxIconsBase, sharpModule);
+
+    for (const theme of ['breeze', 'breeze-dark']) {
+      await generateBreezeMimeIcons(torrentPng, 'application-x-bittorrent', theme, sharpModule);
+      await generateBreezeMimeIcons(torrentPng, 'x-bittorrent', theme, sharpModule);
+      await generateBreezeMimeIcons(magnetPng, 'x-scheme-handler-magnet', theme, sharpModule);
+    }
+  }
+
+  console.log('All platform icon assets successfully processed.');
 }
 
 main().catch((err) => {

@@ -132,7 +132,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
 
               <div className="flex items-center space-x-3 text-sm">
                 <span className="font-semibold text-slate-600 dark:text-slate-400">
-                  v{updateInfo?.currentVersion || '1.0.7'}
+                  v{updateInfo?.currentVersion || '1.0.8'}
                 </span>
                 <ArrowRight className="h-4 w-4 text-blue-500 shrink-0" />
                 <span className="font-extrabold text-blue-600 dark:text-blue-400 text-base">
@@ -156,7 +156,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                 You are running version{' '}
                 <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                  v{updateInfo?.currentVersion || '1.0.7'}
+                  v{updateInfo?.currentVersion || '1.0.8'}
                 </span>
                 . No newer releases were found on GitHub.
               </p>
