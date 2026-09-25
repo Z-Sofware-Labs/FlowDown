@@ -1,6 +1,6 @@
 [package]
 name = "flowdown"
-version = "1.0.8"
+version = "1.1.0"
 description = "FlowDown Download Manager & P2P Engine Desktop App"
 authors = ["Z Software Labs"]
 edition = "2021"
@@ -26,8 +26,12 @@ tokio = { version = "1", features = ["time"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
 
 [features]
 default = ["custom-protocol"]

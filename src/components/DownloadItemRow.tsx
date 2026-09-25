@@ -35,7 +35,7 @@ interface DownloadItemRowProps {
   onNotCompletedDoubleClick: (item: DownloadItem) => void;
 }
 
-export const DownloadItemRow: React.FC<DownloadItemRowProps> = ({
+const DownloadItemRowComponent: React.FC<DownloadItemRowProps> = ({
   item,
   isSelected = false,
   onToggleSelect,
@@ -326,4 +326,6 @@ export const DownloadItemRow: React.FC<DownloadItemRowProps> = ({
     </div>
   );
 };
+
+export const DownloadItemRow = React.memo(DownloadItemRowComponent);
 

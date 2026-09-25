@@ -70,7 +70,6 @@ FunctionEnd
     ${If} $0 == "URL:Magnet Protocol"
       ReadRegStr $1 HKLM "Software\Classes\magnet\shell\open\command" ""
       ${If} $1 == '"$INSTDIR\flowdown.exe" "%1"'
-      ${OrIf} $1 == '"$INSTDIR\wanderlust.exe" "%1"'
         DeleteRegKey HKLM "Software\Classes\magnet"
       ${EndIf}
     ${EndIf}
@@ -109,7 +108,6 @@ FlowDownAssociationPreinstallDone:
 
   ReadRegStr $0 HKLM "Software\Classes\magnet\shell\open\command" ""
   ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
-  ${OrIf} $0 == '"$INSTDIR\wanderlust.exe" "%1"'
     DeleteRegKey HKLM "Software\Classes\magnet"
   ${EndIf}
 

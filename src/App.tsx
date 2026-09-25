@@ -222,12 +222,31 @@ export default function App() {
   const pausedTorrentIds = useRef<Set<string>>(new Set());
   const abortedTransferIds = useRef<Set<string>>(new Set());
 
+  // Debounced persistence: keep volatile progress updates in memory and debounce
+  // writing to localStorage so 250ms ticks don't re-serialize the entire queue continuously.
   useEffect(() => {
-    try {
-      localStorage.setItem('flowdown_downloads_v2', JSON.stringify(downloads));
-    } catch {
-      // Ignore storage failures.
-    }
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem('flowdown_downloads_v2', JSON.stringify(downloads));
+      } catch {
+        // Ignore storage failures.
+      }
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [downloads]);
+
+  // Ensure download queue is persisted immediately on page unload/close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.setItem('flowdown_downloads_v2', JSON.stringify(downloads));
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [downloads]);
 
 

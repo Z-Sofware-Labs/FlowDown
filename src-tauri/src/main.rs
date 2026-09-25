@@ -197,6 +197,37 @@ fn torrent_source(source: &str) -> Result<AddTorrent<'static>, String> {
     }
 }
 
+#[cfg(windows)]
+fn write_at(file: &std::fs::File, offset: u64, buf: &[u8]) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    let mut total_written = 0;
+    while total_written < buf.len() {
+        let written = file.seek_write(&buf[total_written..], offset + total_written as u64)?;
+        if written == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "failed to write whole buffer",
+            ));
+        }
+        total_written += written;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_at(file: &std::fs::File, offset: u64, buf: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::FileExt;
+    file.write_all_at(buf, offset)
+}
+
+#[cfg(not(any(windows, unix)))]
+fn write_at(file: &std::fs::File, _offset: u64, _buf: &[u8]) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Target platform unsupported for positioned writes",
+    ))
+}
+
 const HTTP_PAUSED: &str = "__FLOWDOWN_PAUSED__";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,11 +261,124 @@ fn load_http_resume_state(
     }
 }
 
-fn save_http_resume_state(path: &Path, state: &HttpResumeState) -> Result<(), String> {
+fn save_http_resume_state_atomic(path: &Path, state: &HttpResumeState) -> Result<(), String> {
     let json = serde_json::to_vec_pretty(state)
         .map_err(|e| format!("Could not serialize HTTP resume state: {e}"))?;
-    std::fs::write(path, json)
-        .map_err(|e| format!("Could not save HTTP resume state: {e}"))
+    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp_path, json)
+        .map_err(|e| format!("Could not write temporary HTTP resume state: {e}"))?;
+    
+    // On Windows std::fs::rename will fail if target exists, so remove it first if needed.
+    #[cfg(windows)]
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("Could not finalize HTTP resume state: {e}"))
+}
+
+pub fn sanitize_download_filename(raw_name: &str) -> String {
+    let decoded = urlencoding_decode(raw_name);
+    // Extract base component if path separators exist
+    let base = decoded
+        .replace('\\', "/")
+        .split('/')
+        .filter(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
+        .last()
+        .unwrap_or("")
+        .to_string();
+
+    let cleaned = base
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect::<String>();
+
+    let mut result = cleaned.trim().trim_matches('.').trim().to_string();
+
+    const RESERVED_NAMES: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+
+    let root_stem = result.split('.').next().unwrap_or("");
+
+    if RESERVED_NAMES.iter().any(|&r| root_stem.eq_ignore_ascii_case(r)) {
+        result = format!("_{result}");
+    }
+
+    if result.is_empty() {
+        "downloaded_file.bin".to_string()
+    } else if result.len() > 240 {
+        result[..240].trim_end().to_string()
+    } else {
+        result
+    }
+}
+
+pub fn safe_join_download_path(base_dir: &Path, filename: &str) -> Result<PathBuf, String> {
+    let sanitized = sanitize_download_filename(filename);
+    let joined = base_dir.join(sanitized);
+    Ok(joined)
+}
+
+fn urlencoding_decode(s: &str) -> String {
+    let mut bytes = Vec::new();
+    let mut chars = s.as_bytes().iter().copied();
+    while let Some(b) = chars.next() {
+        if b == b'%' {
+            let h1 = chars.next();
+            let h2 = chars.next();
+            if let (Some(c1), Some(c2)) = (h1, h2) {
+                let hex_str = [c1, c2];
+                if let Ok(val) = u8::from_str_radix(std::str::from_utf8(&hex_str).unwrap_or(""), 16) {
+                    bytes.push(val);
+                    continue;
+                } else {
+                    bytes.push(b'%');
+                    bytes.push(c1);
+                    bytes.push(c2);
+                    continue;
+                }
+            } else {
+                bytes.push(b'%');
+                if let Some(c1) = h1 { bytes.push(c1); }
+                continue;
+            }
+        }
+        bytes.push(b);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn parse_content_range(header_val: &str) -> Option<(u64, u64, u64)> {
+    let s = header_val.trim();
+    if !s.to_ascii_lowercase().starts_with("bytes ") {
+        return None;
+    }
+    let parts: Vec<&str> = s[6..].split('/').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let total = parts[1].trim().parse::<u64>().ok()?;
+    let range_parts: Vec<&str> = parts[0].trim().split('-').collect();
+    if range_parts.len() != 2 {
+        return None;
+    }
+    let start = range_parts[0].trim().parse::<u64>().ok()?;
+    let end = range_parts[1].trim().parse::<u64>().ok()?;
+    if start <= end {
+        Some((start, end, total))
+    } else {
+        None
+    }
 }
 
 fn validate_http_url(url: &str) -> Result<(), String> {
@@ -843,7 +987,7 @@ async fn download_adaptive(
         file.set_len(total)
             .map_err(|e| format!("Could not preallocate destination file: {e}"))?;
 
-        let file = Arc::new(Mutex::new(file));
+        let file = Arc::new(file);
         let completed_ranges = Arc::new(Mutex::new(resume_state.clone()));
         let downloaded = Arc::new(AtomicU64::new(
             completed_set
@@ -858,10 +1002,12 @@ async fn download_adaptive(
         let last_sample_bytes = Arc::new(AtomicU64::new(downloaded.load(Ordering::Acquire)));
         let last_sample_at = Arc::new(Mutex::new(Instant::now()));
         let worker_error = Arc::new(Mutex::new(None::<String>));
+        let resume_dirty = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let last_resume_save = Arc::new(Mutex::new(Instant::now()));
 
         // Persist the state before workers start so a sudden process exit still
         // has a valid manifest for the already-completed ranges.
-        save_http_resume_state(&resume_path, &resume_state)?;
+        save_http_resume_state_atomic(&resume_path, &resume_state)?;
 
         on_event
             .send(DownloadEvent::Started {
@@ -885,6 +1031,8 @@ async fn download_adaptive(
             let worker_error = worker_error.clone();
             let cancellation = cancellation.clone();
             let resume_path = resume_path.clone();
+            let resume_dirty = resume_dirty.clone();
+            let last_resume_save = last_resume_save.clone();
 
             tasks.push(tauri::async_runtime::spawn(async move {
                 let result: Result<(), String> = async {
@@ -985,6 +1133,17 @@ async fn download_adaptive(
                             }
                         };
 
+                        // Validate Content-Range header if present
+                        if let Some(cr) = response.headers().get(header::CONTENT_RANGE).and_then(|v| v.to_str().ok()) {
+                            if let Some((r_start, r_end, _)) = parse_content_range(cr) {
+                                if r_start != start || r_end != end {
+                                    return Err(format!(
+                                        "Server returned mismatched Content-Range: requested bytes={start}-{end}, received {cr}"
+                                    ));
+                                }
+                            }
+                        }
+
                         let mut offset = start;
                         while let Some(chunk) = response
                             .chunk()
@@ -999,17 +1158,9 @@ async fn download_adaptive(
                             let bytes_len = bytes.len() as u64;
                             let write_offset = offset;
 
-                            {
-                                let mut guard = file
-                                    .lock()
-                                    .map_err(|_| "file lock poisoned".to_string())?;
-                                guard
-                                    .seek(SeekFrom::Start(write_offset))
-                                    .map_err(|e| e.to_string())?;
-                                guard
-                                    .write_all(&bytes)
-                                    .map_err(|e| e.to_string())?;
-                            }
+                            // Direct positioned write without global file-position lock
+                            write_at(&file, write_offset, &bytes)
+                                .map_err(|e| format!("Failed to write chunk at offset {write_offset}: {e}"))?;
 
                             offset += bytes_len;
                             downloaded.fetch_add(bytes_len, Ordering::AcqRel);
@@ -1028,10 +1179,17 @@ async fn download_adaptive(
                                 .map_err(|_| "HTTP resume state lock poisoned".to_string())?;
                             if !state.completed_ranges.contains(&(start, end)) {
                                 state.completed_ranges.push((start, end));
-                                save_http_resume_state(
-                                    &resume_path,
-                                    &state,
-                                )?;
+                                resume_dirty.store(true, Ordering::Release);
+
+                                // Checkpoint resume state if more than 3 seconds since last save
+                                let mut last_save = last_resume_save
+                                    .lock()
+                                    .map_err(|_| "resume save lock poisoned".to_string())?;
+                                if last_save.elapsed() >= Duration::from_secs(3) {
+                                    let _ = save_http_resume_state_atomic(&resume_path, &state);
+                                    *last_save = Instant::now();
+                                    resume_dirty.store(false, Ordering::Release);
+                                }
                             }
                         }
                     }
@@ -1064,6 +1222,12 @@ async fn download_adaptive(
                 for task in tasks {
                     let _ = task.await;
                 }
+                // Flush dirty resume state upon pause
+                if resume_dirty.load(Ordering::Acquire) {
+                    if let Ok(state) = completed_ranges.lock() {
+                        let _ = save_http_resume_state_atomic(&resume_path, &state);
+                    }
+                }
                 return Err(HTTP_PAUSED.into());
             }
 
@@ -1077,6 +1241,12 @@ async fn download_adaptive(
                 }
                 for task in tasks {
                     let _ = task.await;
+                }
+                // Flush dirty resume state upon error
+                if resume_dirty.load(Ordering::Acquire) {
+                    if let Ok(state) = completed_ranges.lock() {
+                        let _ = save_http_resume_state_atomic(&resume_path, &state);
+                    }
                 }
                 return Err(error);
             }
@@ -1137,14 +1307,8 @@ async fn download_adaptive(
             task.await.map_err(|e| e.to_string())??;
         }
 
-        {
-            let guard = file
-                .lock()
-                .map_err(|_| "file lock poisoned".to_string())?;
-            guard
-                .sync_all()
-                .map_err(|e| format!("Could not finalize destination file: {e}"))?;
-        }
+        file.sync_all()
+            .map_err(|e| format!("Could not finalize destination file: {e}"))?;
 
         let _ = std::fs::remove_file(&resume_path);
 
@@ -1442,12 +1606,11 @@ fn take_external_transfer(
 }
 
 /// Register or unregister .torrent / magnet file associations in the current
-/// user's registry hive (HKCU) without spawning any subprocess.
-/// Writing to HKCU never requires elevation, so this works even for a
-/// per-user install. No CMD window ever appears.
+/// user's registry hive (HKCU) without spawning any subprocess or requiring UAC.
+/// Writing to HKCU works for both per-user and per-machine installs without elevation.
 #[cfg(windows)]
-fn do_register_file_associations_hklm(torrent: bool, magnet: bool) -> Result<(), String> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
+fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(), String> {
+    use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
     let exe_path = std::env::current_exe()
@@ -1455,49 +1618,49 @@ fn do_register_file_associations_hklm(torrent: bool, magnet: bool) -> Result<(),
     let exe_str = exe_path.to_string_lossy();
     let open_cmd = format!("\"{}\" \"%1\"", exe_str);
 
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
     // ── .torrent ─────────────────────────────────────────────────────────────
     if torrent {
         // File-type class
-        let (cls, _) = hklm
+        let (cls, _) = hkcu
             .create_subkey("Software\\Classes\\FlowDown.Torrent")
             .map_err(|e| format!("Registry error (FlowDown.Torrent): {e}"))?;
         cls.set_value("", &"BitTorrent File")
             .map_err(|e| format!("Registry error: {e}"))?;
 
-        let (icon, _) = hklm
+        let (icon, _) = hkcu
             .create_subkey("Software\\Classes\\FlowDown.Torrent\\DefaultIcon")
             .map_err(|e| format!("Registry error (DefaultIcon): {e}"))?;
         icon.set_value("", &format!("{},0", exe_str))
             .map_err(|e| format!("Registry error: {e}"))?;
 
-        let (cmd, _) = hklm
+        let (cmd, _) = hkcu
             .create_subkey("Software\\Classes\\FlowDown.Torrent\\shell\\open\\command")
             .map_err(|e| format!("Registry error (shell\\open\\command): {e}"))?;
         cmd.set_value("", &open_cmd)
             .map_err(|e| format!("Registry error: {e}"))?;
 
         // Extension → class mapping
-        let (ext, _) = hklm
+        let (ext, _) = hkcu
             .create_subkey("Software\\Classes\\.torrent")
             .map_err(|e| format!("Registry error (.torrent): {e}"))?;
         ext.set_value("", &"FlowDown.Torrent")
             .map_err(|e| format!("Registry error: {e}"))?;
     } else {
         // Only remove our own registration; never touch another app's entry.
-        if let Ok(ext) = hklm.open_subkey("Software\\Classes\\.torrent") {
+        if let Ok(ext) = hkcu.open_subkey("Software\\Classes\\.torrent") {
             let current: String = ext.get_value("").unwrap_or_default();
             if current == "FlowDown.Torrent" {
-                let _ = hklm.delete_subkey_all("Software\\Classes\\FlowDown.Torrent");
-                let _ = hklm.delete_subkey_all("Software\\Classes\\.torrent");
+                let _ = hkcu.delete_subkey_all("Software\\Classes\\FlowDown.Torrent");
+                let _ = hkcu.delete_subkey_all("Software\\Classes\\.torrent");
             }
         }
     }
 
     // ── magnet: URI scheme ────────────────────────────────────────────────────
     if magnet {
-        let (proto, _) = hklm
+        let (proto, _) = hkcu
             .create_subkey("Software\\Classes\\magnet")
             .map_err(|e| format!("Registry error (magnet): {e}"))?;
         proto.set_value("", &"URL:Magnet Protocol")
@@ -1505,24 +1668,34 @@ fn do_register_file_associations_hklm(torrent: bool, magnet: bool) -> Result<(),
         proto.set_value("URL Protocol", &"")
             .map_err(|e| format!("Registry error: {e}"))?;
 
-        let (icon, _) = hklm
+        let (icon, _) = hkcu
             .create_subkey("Software\\Classes\\magnet\\DefaultIcon")
             .map_err(|e| format!("Registry error (magnet DefaultIcon): {e}"))?;
         icon.set_value("", &format!("{},0", exe_str))
             .map_err(|e| format!("Registry error: {e}"))?;
 
-        let (cmd, _) = hklm
+        let (cmd, _) = hkcu
             .create_subkey("Software\\Classes\\magnet\\shell\\open\\command")
             .map_err(|e| format!("Registry error (magnet shell\\open\\command): {e}"))?;
         cmd.set_value("", &open_cmd)
             .map_err(|e| format!("Registry error: {e}"))?;
     } else {
-        if let Ok(proto) = hklm.open_subkey("Software\\Classes\\magnet\\shell\\open\\command") {
+        if let Ok(proto) = hkcu.open_subkey("Software\\Classes\\magnet\\shell\\open\\command") {
             let current: String = proto.get_value("").unwrap_or_default();
             if current == open_cmd {
-                let _ = hklm.delete_subkey_all("Software\\Classes\\magnet");
+                let _ = hkcu.delete_subkey_all("Software\\Classes\\magnet");
             }
         }
+    }
+
+    // Notify the shell so Explorer / taskbar update immediately.
+    unsafe {
+        windows_sys::Win32::UI::Shell::SHChangeNotify(
+            windows_sys::Win32::UI::Shell::SHCNE_ASSOCCHANGED as i32,
+            windows_sys::Win32::UI::Shell::SHCNF_IDLIST,
+            std::ptr::null(),
+            std::ptr::null(),
+        );
     }
 
     Ok(())
@@ -1535,39 +1708,7 @@ fn register_file_associations(
     torrent: bool,
     magnet: bool,
 ) -> Result<(), String> {
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("Could not resolve executable path: {e}"))?;
-    let exe_str = exe_path.to_string_lossy();
-
-    // Elevate our own executable using PowerShell.
-    // This prompts the user for UAC if needed.
-    let status = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-WindowStyle", "Hidden",
-            "-Command",
-            &format!(
-                "Start-Process '{}' -ArgumentList '--register-elevated {} {}' -Verb RunAs -WindowStyle Hidden -Wait",
-                exe_str, torrent as u8, magnet as u8
-            )
-        ])
-        .status()
-        .map_err(|e| format!("Failed to invoke UAC elevation: {}", e))?;
-
-    if !status.success() {
-        return Err("UAC elevation was cancelled or failed.".into());
-    }
-
-    // Notify the shell so Explorer / taskbar update immediately.
-    #[link(name = "shell32")]
-    extern "system" {
-        fn SHChangeNotify(wEventId: i32, uFlags: u32, dwItem1: *const std::ffi::c_void, dwItem2: *const std::ffi::c_void);
-    }
-    unsafe {
-        SHChangeNotify(0x0800_0000i32, 0x0000, std::ptr::null(), std::ptr::null());
-    }
-
-    Ok(())
+    do_register_file_associations_hkcu(torrent, magnet)
 }
 
 /// File association registration on Linux (via xdg-mime) and macOS (handled by bundle Info.plist).
@@ -1579,14 +1720,22 @@ fn register_file_associations(
     magnet: bool,
 ) -> Result<(), String> {
     if torrent {
-        let _ = std::process::Command::new("xdg-mime")
+        let status = std::process::Command::new("xdg-mime")
             .args(["default", "flowdown.desktop", "application/x-bittorrent"])
-            .status();
+            .status()
+            .map_err(|e| format!("Failed to run xdg-mime: {e}"))?;
+        if !status.success() {
+            return Err("xdg-mime failed to set .torrent file association".into());
+        }
     }
     if magnet {
-        let _ = std::process::Command::new("xdg-mime")
+        let status = std::process::Command::new("xdg-mime")
             .args(["default", "flowdown.desktop", "x-scheme-handler/magnet"])
-            .status();
+            .status()
+            .map_err(|e| format!("Failed to run xdg-mime: {e}"))?;
+        if !status.success() {
+            return Err("xdg-mime failed to set magnet URI association".into());
+        }
     }
     Ok(())
 }
@@ -1619,18 +1768,30 @@ async fn update_torrent_engine_config(
     app: tauri::AppHandle,
     state: tauri::State<'_, TorrentState>,
 ) -> Result<(), String> {
-    let output_folder = app
-        .path()
-        .download_dir()
-        .map_err(|e| format!("Failed to get Downloads directory: {e}"))?;
+    let requires_session_restart = {
+        if let Ok(current_cfg) = state.config.lock() {
+            current_cfg.listen_port != config.listen_port
+                || current_cfg.randomize_port != config.randomize_port
+                || current_cfg.disable_dht != config.disable_dht
+        } else {
+            false
+        }
+    };
 
-    let opts = make_session_options(Some(&config));
-    let new_session = Session::new_with_opts(output_folder, opts)
-        .await
-        .map_err(|e| format!("Failed to update BitTorrent session: {e}"))?;
+    if requires_session_restart {
+        let output_folder = app
+            .path()
+            .download_dir()
+            .map_err(|e| format!("Failed to get Downloads directory: {e}"))?;
 
-    let mut write_lock = state.session.write().await;
-    *write_lock = new_session;
+        let opts = make_session_options(Some(&config));
+        let new_session = Session::new_with_opts(output_folder, opts)
+            .await
+            .map_err(|e| format!("Failed to update BitTorrent session: {e}"))?;
+
+        let mut write_lock = state.session.write().await;
+        *write_lock = new_session;
+    }
 
     if let Ok(mut cfg_guard) = state.config.lock() {
         *cfg_guard = config;
@@ -1640,27 +1801,6 @@ async fn update_torrent_engine_config(
 }
 
 fn main() {
-    // Intercept elevated registration flag before anything else
-    let mut args = std::env::args().skip(1);
-    if let Some(arg) = args.next() {
-        if arg == "--register-elevated" {
-            #[cfg(windows)]
-            {
-                let torrent = args.next().unwrap_or_default() == "1";
-                let magnet = args.next().unwrap_or_default() == "1";
-                if let Err(e) = do_register_file_associations_hklm(torrent, magnet) {
-                    eprintln!("Failed to register: {}", e);
-                    std::process::exit(1);
-                }
-                std::process::exit(0);
-            }
-            #[cfg(not(windows))]
-            {
-                std::process::exit(1);
-            }
-        }
-    }
-
     tauri::Builder::default()
         // Keep FlowDown single-instance so opening a .torrent or magnet link
         // while the app is already running reuses the existing window.
@@ -1784,4 +1924,76 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_download_filename_traversal() {
+        assert_eq!(sanitize_download_filename("../file.exe"), "file.exe");
+        assert_eq!(sanitize_download_filename("../../file.exe"), "file.exe");
+        assert_eq!(sanitize_download_filename(r"..\..\file.exe"), "file.exe");
+        assert_eq!(sanitize_download_filename(r"C:\file.exe"), "file.exe");
+        assert_eq!(sanitize_download_filename(r"\\server\share\file.exe"), "file.exe");
+    }
+
+    #[test]
+    fn test_sanitize_download_filename_windows_reserved() {
+        assert_eq!(sanitize_download_filename("CON"), "_CON");
+        assert_eq!(sanitize_download_filename("con.txt"), "_con.txt");
+        assert_eq!(sanitize_download_filename("NUL"), "_NUL");
+        assert_eq!(sanitize_download_filename("nul.tar.gz"), "_nul.tar.gz");
+        assert_eq!(sanitize_download_filename("AUX"), "_AUX");
+        assert_eq!(sanitize_download_filename("COM1"), "_COM1");
+        assert_eq!(sanitize_download_filename("LPT1"), "_LPT1");
+    }
+
+    #[test]
+    fn test_sanitize_download_filename_special_chars() {
+        assert_eq!(sanitize_download_filename("file:name.exe"), "file name.exe");
+        assert_eq!(sanitize_download_filename("file?.exe"), "file .exe");
+        assert_eq!(sanitize_download_filename("file*.exe"), "file .exe");
+        assert_eq!(sanitize_download_filename("file with trailing space "), "file with trailing space");
+        assert_eq!(sanitize_download_filename("file with trailing dot."), "file with trailing dot");
+        assert_eq!(sanitize_download_filename(""), "downloaded_file.bin");
+    }
+
+    #[test]
+    fn test_safe_join_download_path() {
+        let base = PathBuf::from("C:\\Users\\User\\Downloads");
+        let safe = safe_join_download_path(&base, "../../etc/passwd").unwrap();
+        assert_eq!(safe, base.join("passwd"));
+    }
+
+    #[test]
+    fn test_parse_content_range_valid() {
+        assert_eq!(parse_content_range("bytes 0-499/1234"), Some((0, 499, 1234)));
+        assert_eq!(parse_content_range("bytes 100-200/5000"), Some((100, 200, 5000)));
+    }
+
+    #[test]
+    fn test_parse_content_range_invalid() {
+        assert_eq!(parse_content_range("none"), None);
+        assert_eq!(parse_content_range("bytes 500-400/1000"), None);
+        assert_eq!(parse_content_range("bytes invalid"), None);
+    }
+
+    #[test]
+    fn test_http_resume_state_atomic_save_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("test.bin.flowdown.state.json");
+        let state = HttpResumeState {
+            url: "https://example.com/test.bin".into(),
+            total: 1024,
+            chunk_size: 256,
+            completed_ranges: vec![(0, 255), (256, 511)],
+        };
+
+        save_http_resume_state_atomic(&target, &state).unwrap();
+        let loaded = load_http_resume_state(&target, "https://example.com/test.bin", 1024, 256).unwrap();
+        assert_eq!(loaded.completed_ranges.len(), 2);
+        assert_eq!(loaded.completed_ranges[0], (0, 255));
+    }
 }

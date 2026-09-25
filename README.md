@@ -40,13 +40,13 @@ FlowDown is designed as a **manual-style download manager**:
 
 You can download pre-built installers and packages directly from the [GitHub Releases](https://github.com/Z-Sofware-Labs/FlowDown/releases) page.
 
-### Windows
-1. Download the `.msi` installer or the `.exe` setup package.
+### Windows (x64)
+1. Download the `.exe` setup package (NSIS installer).
 2. Run the installer and follow the on-screen setup wizard.
-3. FlowDown will be available in your Start Menu and Desktop.
+3. FlowDown registers per-user without prompting for elevated UAC privileges.
 
-### macOS
-1. Download the `.dmg` file for your architecture (`x64` for Intel or `aarch64` for Apple Silicon).
+### macOS (Universal: Apple Silicon & Intel)
+1. Download the Universal `.dmg` file (`universal-apple-darwin`), which runs natively on both Apple Silicon (M1/M2/M3/M4) and Intel Macs.
 2. Open the `.dmg` and drag **FlowDown** into your **Applications** folder.
 
 > [!NOTE]
@@ -60,22 +60,22 @@ You can download pre-built installers and packages directly from the [GitHub Rel
 > xattr -cr /Applications/FlowDown.app
 > ```
 
-### Linux
-Pre-built packages are available in multiple formats:
-- **AppImage**:
-  ```bash
-  chmod +x FlowDown_*.AppImage
-  ./FlowDown_*.AppImage
-  ```
+### Linux (x86_64)
+Pre-built packages are generated for `x86_64` (ARM64 can be built directly from source):
 - **Debian / Ubuntu (`.deb`)**:
   ```bash
   sudo dpkg -i flowdown_*_amd64.deb
   # If there are missing dependencies:
   sudo apt-get install -f
   ```
-- **RPM (`.rpm`)**:
+- **Fedora / RHEL / openSUSE (`.rpm`)**:
   ```bash
   sudo rpm -i flowdown-*.rpm
+  ```
+- **AppImage**:
+  ```bash
+  chmod +x FlowDown_*.AppImage
+  ./FlowDown_*.AppImage
   ```
 
 ---
