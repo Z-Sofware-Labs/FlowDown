@@ -17,7 +17,6 @@ use std::{
 use librqbit::{api::{Api, TorrentIdOrHash}, AddTorrent, AddTorrentOptions, Session};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager};
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_http::reqwest::{self, header};
 
@@ -1822,14 +1821,6 @@ fn main() {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
-
-            // The single-instance plugin forwards the new invocation to the
-            // already-running process. Give the user a native OS-level notice
-            // so it is obvious why no second window appeared.
-            app.dialog()
-                .message("FlowDown is already running. The existing window has been brought to the foreground.")
-                .title("FlowDown")
-                .show(|_| {});
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -1901,6 +1892,20 @@ fn main() {
                         if (!editable) e.preventDefault(); \
                     }, true);"
                 );
+            }
+
+            #[cfg(windows)]
+            {
+                // Self-heal stale association in HKCU if pointing to a non-existent executable
+                use winreg::enums::HKEY_CURRENT_USER;
+                use winreg::RegKey;
+                let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+                if let Ok(proto) = hkcu.open_subkey("Software\\Classes\\magnet\\shell\\open\\command") {
+                    let current: String = proto.get_value("").unwrap_or_default();
+                    if current.to_ascii_lowercase().contains("wanderlust.exe") {
+                        let _ = do_register_file_associations_hkcu(false, true);
+                    }
+                }
             }
 
             Ok(())

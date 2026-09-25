@@ -258,7 +258,7 @@ export const AddDownloadModal: React.FC<AddDownloadModalProps> = ({
         void inspectTorrentNative(trimmed, savePath)
           .then((metadata) => {
             if (torrentId !== torrentProbeId.current) return;
-            setName(metadata.name || name);
+            setName((prev) => metadata.name || prev);
             setServerSize(metadata.total);
             setIsMultiFileDir(metadata.files.length > 1);
             updateDirectoryFilesState(metadata.files);
@@ -352,7 +352,8 @@ export const AddDownloadModal: React.FC<AddDownloadModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!url.trim() && !name.trim()) || isFetchingSize) return;
+    if (!url.trim() && !name.trim()) return;
+    if (isFetchingSize && !isTorrent) return;
 
     const { filename } = cleanUrlAndFilename(url);
     const finalName = name.trim() || filename || 'download_file.bin';
@@ -687,14 +688,14 @@ export const AddDownloadModal: React.FC<AddDownloadModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isFetchingSize}
+                disabled={isFetchingSize && !isTorrent}
                 className={`px-5 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-2 ${
-                  isFetchingSize
+                  isFetchingSize && !isTorrent
                     ? 'bg-slate-300 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
                     : 'text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/20'
                 }`}
               >
-                {isFetchingSize ? (
+                {isFetchingSize && !isTorrent ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span>Probing file size...</span>
@@ -702,7 +703,9 @@ export const AddDownloadModal: React.FC<AddDownloadModalProps> = ({
                 ) : (
                   <>
                     <Download className="h-4 w-4" />
-                    <span>Add Transfer ({effectiveSize > 0 ? formatBytes(effectiveSize) : 'Unknown'})</span>
+                    <span>
+                      Add Transfer ({effectiveSize > 0 ? formatBytes(effectiveSize) : isTorrent && isFetchingSize ? 'Resolving...' : 'Unknown'})
+                    </span>
                   </>
                 )}
               </button>

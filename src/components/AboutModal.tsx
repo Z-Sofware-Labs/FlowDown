@@ -83,7 +83,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({
 
         {/* Version */}
         <div className="mt-0.5 flex items-center justify-center space-x-1.5 text-xs text-slate-400">
-          <span>Version 1.1.0</span>
+          <span>Version 1.1.1</span>
         </div>
 
         {/* Copyright notice with Z Software Labs Logo */}
