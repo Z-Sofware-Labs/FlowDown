@@ -156,7 +156,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
                 You are running version{' '}
                 <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
-                  v{updateInfo?.currentVersion || '1.1.1'}
+                  v{updateInfo?.currentVersion || '1.1.2'}
                 </span>
                 . No newer releases were found on GitHub.
               </p>

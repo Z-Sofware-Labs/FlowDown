@@ -41,6 +41,57 @@ async function createIcns(pngBuffer, outPath, sharpModule) {
   console.log(`Generated ICNS: ${outPath} (${icnsBuffer.length} bytes)`);
 }
 
+// 1b. Build Windows ICO file containing multiple PNG images
+async function createIco(pngBuffer, outPath, sharpModule) {
+  const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+  const pngBuffers = await Promise.all(
+    icoSizes.map((s) =>
+      sharpModule(pngBuffer)
+        .resize(s, s, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer()
+    )
+  );
+
+  const count = pngBuffers.length;
+  const headerSize = 6;
+  const dirEntrySize = 16;
+  const dirSize = headerSize + count * dirEntrySize;
+
+  let dataOffset = dirSize;
+  const entries = pngBuffers.map((buf, i) => {
+    const w = icoSizes[i];
+    const entry = { width: w > 255 ? 0 : w, height: w > 255 ? 0 : w, buf, offset: dataOffset };
+    dataOffset += buf.length;
+    return entry;
+  });
+
+  const totalSize = dataOffset;
+  const ico = Buffer.alloc(totalSize);
+
+  ico.writeUInt16LE(0, 0);     // reserved
+  ico.writeUInt16LE(1, 2);     // type: icon
+  ico.writeUInt16LE(count, 4); // count
+
+  let dirPos = 6;
+  for (const e of entries) {
+    ico.writeUInt8(e.width, dirPos);       // width
+    ico.writeUInt8(e.height, dirPos + 1);  // height
+    ico.writeUInt8(0, dirPos + 2);         // color count
+    ico.writeUInt8(0, dirPos + 3);         // reserved
+    ico.writeUInt16LE(1, dirPos + 4);      // planes
+    ico.writeUInt16LE(32, dirPos + 6);     // bit count
+    ico.writeUInt32LE(e.buf.length, dirPos + 8);  // bytes in image
+    ico.writeUInt32LE(e.offset, dirPos + 12);     // offset
+    dirPos += 16;
+
+    e.buf.copy(ico, e.offset);
+  }
+
+  fs.writeFileSync(outPath, ico);
+  console.log(`Generated ICO: ${outPath} (${ico.length} bytes)`);
+}
+
 // 2. Generate Linux hicolor theme mimetype icons
 async function generateLinuxMimeIcons(pngBuffer, mimeBaseName, outDir, sharpModule) {
   const sizes = [16, 32, 48, 64, 128, 256];
@@ -107,6 +158,8 @@ async function main() {
 
     await createIcns(torrentPng, 'src-tauri/icons/torrent.icns', sharpModule);
     await createIcns(magnetPng, 'src-tauri/icons/magnet.icns', sharpModule);
+    await createIco(torrentPng, 'src-tauri/icons/torrent.ico', sharpModule);
+    await createIco(magnetPng, 'src-tauri/icons/magnet.ico', sharpModule);
 
     const linuxIconsBase = 'src-tauri/linux/icons/hicolor';
     await generateLinuxMimeIcons(torrentPng, 'application-x-bittorrent', linuxIconsBase, sharpModule);
