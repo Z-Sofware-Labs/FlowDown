@@ -83,9 +83,14 @@ FlowDownAssociationPreinstallDone:
   ; magnet.ico and torrent.ico are installed to $INSTDIR via bundle.resources.
   ${If} $FlowDownAssociateTorrent == ${BST_CHECKED}
     WriteRegStr HKLM "Software\Classes\.torrent" "" "FlowDown.Torrent"
+    WriteRegStr HKLM "Software\Classes\.torrent\OpenWithProgids" "FlowDown.Torrent" ""
     WriteRegStr HKLM "Software\Classes\FlowDown.Torrent" "" "BitTorrent File"
     WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$INSTDIR\torrent.ico"
     WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
+
+    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe" "FriendlyAppName" "FlowDown"
+    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe\DefaultIcon" "" "$INSTDIR\torrent.ico"
+    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe\SupportedTypes" ".torrent" ""
   ${EndIf}
 
   ${If} $FlowDownAssociateMagnet == ${BST_CHECKED}
@@ -109,6 +114,11 @@ FlowDownAssociationPreinstallDone:
   ReadRegStr $0 HKLM "Software\Classes\magnet\shell\open\command" ""
   ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
     DeleteRegKey HKLM "Software\Classes\magnet"
+  ${EndIf}
+
+  ReadRegStr $0 HKLM "Software\Classes\Applications\flowdown.exe\shell\open\command" ""
+  ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
+    DeleteRegKey HKLM "Software\Classes\Applications\flowdown.exe"
   ${EndIf}
 
   ; Remove dedicated icon files.

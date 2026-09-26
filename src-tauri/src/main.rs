@@ -1617,7 +1617,19 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
     let exe_str = exe_path.to_string_lossy();
     let open_cmd = format!("\"{}\" \"%1\"", exe_str);
 
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let exe_dir = exe_path.parent().unwrap_or(&exe_path);
+    let torrent_ico = exe_dir.join("torrent.ico");
+    let magnet_ico = exe_dir.join("magnet.ico");
+    let torrent_ico_str = if torrent_ico.exists() {
+        format!("\"{}\"", torrent_ico.to_string_lossy())
+    } else {
+        format!("\"{}\",0", exe_str)
+    };
+    let magnet_ico_str = if magnet_ico.exists() {
+        format!("\"{}\"", magnet_ico.to_string_lossy())
+    } else {
+        format!("\"{}\",0", exe_str)
+    };
 
     // ── .torrent ─────────────────────────────────────────────────────────────
     if torrent {
@@ -1631,7 +1643,7 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
         let (icon, _) = hkcu
             .create_subkey("Software\\Classes\\FlowDown.Torrent\\DefaultIcon")
             .map_err(|e| format!("Registry error (DefaultIcon): {e}"))?;
-        icon.set_value("", &format!("{},0", exe_str))
+        icon.set_value("", &torrent_ico_str)
             .map_err(|e| format!("Registry error: {e}"))?;
 
         let (cmd, _) = hkcu
@@ -1646,6 +1658,22 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
             .map_err(|e| format!("Registry error (.torrent): {e}"))?;
         ext.set_value("", &"FlowDown.Torrent")
             .map_err(|e| format!("Registry error: {e}"))?;
+
+        // OpenWithProgids mapping
+        if let Ok((openwith, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.torrent\\OpenWithProgids") {
+            let _ = openwith.set_value("FlowDown.Torrent", &"");
+        }
+
+        // Applications\flowdown.exe mapping so Open With also resolves DefaultIcon & SupportedTypes
+        if let Ok((app_key, _)) = hkcu.create_subkey("Software\\Classes\\Applications\\flowdown.exe") {
+            let _ = app_key.set_value("FriendlyAppName", &"FlowDown");
+            if let Ok((app_icon, _)) = app_key.create_subkey("DefaultIcon") {
+                let _ = app_icon.set_value("", &torrent_ico_str);
+            }
+            if let Ok((app_types, _)) = app_key.create_subkey("SupportedTypes") {
+                let _ = app_types.set_value(".torrent", &"");
+            }
+        }
     } else {
         // Only remove our own registration; never touch another app's entry.
         if let Ok(ext) = hkcu.open_subkey("Software\\Classes\\.torrent") {
@@ -1654,6 +1682,9 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
                 let _ = hkcu.delete_subkey_all("Software\\Classes\\FlowDown.Torrent");
                 let _ = hkcu.delete_subkey_all("Software\\Classes\\.torrent");
             }
+        }
+        if let Ok(openwith) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.torrent\\OpenWithProgids") {
+            let _ = openwith.delete_value("FlowDown.Torrent");
         }
     }
 
@@ -1670,7 +1701,7 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
         let (icon, _) = hkcu
             .create_subkey("Software\\Classes\\magnet\\DefaultIcon")
             .map_err(|e| format!("Registry error (magnet DefaultIcon): {e}"))?;
-        icon.set_value("", &format!("{},0", exe_str))
+        icon.set_value("", &magnet_ico_str)
             .map_err(|e| format!("Registry error: {e}"))?;
 
         let (cmd, _) = hkcu
