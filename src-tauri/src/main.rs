@@ -1630,6 +1630,7 @@ fn do_register_file_associations_hkcu(torrent: bool, magnet: bool) -> Result<(),
     } else {
         format!("\"{}\",0", exe_str)
     };
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
     // ── .torrent ─────────────────────────────────────────────────────────────
     if torrent {
