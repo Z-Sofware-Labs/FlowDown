@@ -1,4 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
@@ -21,10 +22,19 @@ export type UpdateDownloadProgress = {
  * Check GitHub Releases for available FlowDown updates.
  */
 export async function checkForUpdate(): Promise<AppUpdateInfo> {
+  let appVersion = '1.1.3';
+  if (isTauri()) {
+    try {
+      appVersion = await getVersion();
+    } catch {
+      // fallback to default
+    }
+  }
+
   if (!isTauri()) {
     return {
       available: false,
-      currentVersion: '1.1.2',
+      currentVersion: appVersion,
     };
   }
 
@@ -33,7 +43,7 @@ export async function checkForUpdate(): Promise<AppUpdateInfo> {
     if (!update) {
       return {
         available: false,
-        currentVersion: '1.1.1',
+        currentVersion: appVersion,
       };
     }
 

@@ -353,7 +353,7 @@ export default function App() {
         void saveWindowState(persistentFlags).catch((error) => {
           console.debug('[FlowDown] Could not save window state', error);
         });
-      }, 250);
+      }, 1000);
     };
 
     const showFallbackTimer = setTimeout(async () => {

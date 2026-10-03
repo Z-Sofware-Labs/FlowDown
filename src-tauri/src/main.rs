@@ -622,6 +622,10 @@ async fn start_torrent(
         None => save_path.clone(),
     };
 
+    if let Err(e) = std::fs::create_dir_all(&torrent_output_folder) {
+        return Err(format!("Failed to create download folder '{torrent_output_folder}': {e}"));
+    }
+
     let options = AddTorrentOptions {
         output_folder: Some(torrent_output_folder),
         overwrite,
@@ -1832,6 +1836,15 @@ async fn update_torrent_engine_config(
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        // Mitigates known WebKitGTK (2.40+) window resize, minimize, maximize, and restore
+        // lag/stutter caused by DMA-BUF surface re-negotiation on Wayland and X11 compositors.
+        if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     tauri::Builder::default()
         // Keep FlowDown single-instance so opening a .torrent or magnet link
         // while the app is already running reuses the existing window.
