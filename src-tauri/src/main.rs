@@ -14,7 +14,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use librqbit::{api::{Api, TorrentIdOrHash}, AddTorrent, AddTorrentOptions, Session};
+use librqbit::{
+    api::{Api, TorrentIdOrHash},
+    AddTorrent, AddTorrentOptions, Session,
+};
+use librqbit_core::{
+    hash_id::Id,
+    torrent_metainfo::ValidatedTorrentMetaV1Info,
+};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
@@ -105,25 +112,12 @@ fn make_session_options(config: Option<&TorrentEngineConfig>) -> librqbit::Sessi
     let mut opts = librqbit::SessionOptions::default();
 
     if let Some(cfg) = config {
-        // 1. Custom / Random Non-Standard Listening Port
-        if cfg.randomize_port.unwrap_or(false) {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .subsec_nanos();
-            let random_port = 49152 + ((nanos % (65535 - 49152 + 1)) as u16);
-            opts.listen_port_range = Some(random_port..(random_port.saturating_add(1)));
-        } else if let Some(port) = cfg.listen_port.filter(|p| *p >= 1024) {
-            opts.listen_port_range = Some(port..(port.saturating_add(1)));
-        }
-
-        // 2. Disable DHT / Public Peer Discovery (Strict Tracker Mode)
+        // 1. Disable DHT / Public Peer Discovery (Strict Tracker Mode)
         if cfg.disable_dht.unwrap_or(false) {
-            opts.disable_dht = true;
-            opts.disable_dht_persistence = true;
+            opts.dht = None;
         }
 
-        // 3. Anonymous Mode / Peer ID Spoofing
+        // 2. Anonymous Mode / Peer ID Spoofing
         if cfg.anonymous_mode.unwrap_or(true) {
             let mut peer_id_bytes = [0u8; 20];
             let prefix = match cfg.client_id_spoof.as_deref() {
@@ -138,7 +132,7 @@ fn make_session_options(config: Option<&TorrentEngineConfig>) -> librqbit::Sessi
             for i in prefix.len()..20 {
                 peer_id_bytes[i] = b'a' + (((nanos + (i as u32 * 31)) % 26) as u8);
             }
-            opts.peer_id = Some(librqbit_core::hash_id::Id(peer_id_bytes));
+            opts.peer_id = Some(Id(peer_id_bytes));
         }
     }
 
@@ -147,13 +141,36 @@ fn make_session_options(config: Option<&TorrentEngineConfig>) -> librqbit::Sessi
 
 #[derive(Clone)]
 struct TorrentState {
-    session: Arc<tokio::sync::RwLock<Arc<Session>>>,
+    session: Arc<tokio::sync::RwLock<Option<Arc<Session>>>>,
     config: Arc<Mutex<TorrentEngineConfig>>,
+    output_folder: PathBuf,
 }
 
 impl TorrentState {
-    async fn get_session(&self) -> Arc<Session> {
-        self.session.read().await.clone()
+    async fn get_session(&self) -> Result<Arc<Session>, String> {
+        {
+            let read_guard = self.session.read().await;
+            if let Some(ref session) = *read_guard {
+                return Ok(session.clone());
+            }
+        }
+
+        let mut write_guard = self.session.write().await;
+        if let Some(ref session) = *write_guard {
+            return Ok(session.clone());
+        }
+
+        let opts = {
+            let cfg = self.config.lock().ok();
+            make_session_options(cfg.as_deref())
+        };
+
+        let session = Session::new_with_opts(self.output_folder.clone(), opts)
+            .await
+            .map_err(|e| format!("Failed to create BitTorrent session: {e}"))?;
+
+        *write_guard = Some(session.clone());
+        Ok(session)
     }
 }
 
@@ -521,7 +538,7 @@ async fn inspect_torrent(
         ..Default::default()
     };
 
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let response = session
         .add_torrent(torrent_source(&url)?, Some(options))
         .await
@@ -532,12 +549,8 @@ async fn inspect_torrent(
             let files = list
                 .info
                 .iter_file_details()
-                .map_err(|e| format!("Failed to read torrent files: {e}"))?
                 .map(|detail| TorrentMetadataFile {
-                    path: detail
-                        .filename
-                        .to_string()
-                        .unwrap_or_else(|_| "<invalid filename>".to_string()),
+                    path: detail.filename.to_pathbuf().to_string_lossy().into_owned(),
                     size: detail.len,
                 })
                 .collect::<Vec<_>>();
@@ -545,9 +558,8 @@ async fn inspect_torrent(
             let total = files.iter().map(|file| file.size).sum();
             let name = list
                 .info
-                .name
-                .as_ref()
-                .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
+                .name()
+                .map(|name| name.to_string())
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| "Torrent".to_string());
 
@@ -564,12 +576,8 @@ async fn inspect_torrent(
                 let files = metadata
                     .info
                     .iter_file_details()
-                    .map_err(|e| format!("Failed to read torrent files: {e}"))?
                     .map(|detail| TorrentMetadataFile {
-                        path: detail
-                            .filename
-                            .to_string()
-                            .unwrap_or_else(|_| "<invalid filename>".to_string()),
+                        path: detail.filename.to_pathbuf().to_string_lossy().into_owned(),
                         size: detail.len,
                     })
                     .collect::<Vec<_>>();
@@ -589,11 +597,10 @@ async fn inspect_torrent(
 }
 
 fn torrent_name_from_metadata(
-    info: &librqbit::TorrentMetaV1Info<librqbit::ByteBufOwned>,
+    info: &ValidatedTorrentMetaV1Info<librqbit::ByteBufOwned>,
 ) -> String {
-    info.name
-        .as_ref()
-        .map(|name| String::from_utf8_lossy(name.as_ref()).into_owned())
+    info.name()
+        .map(|name| name.to_string())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Torrent".to_string())
 }
@@ -633,7 +640,7 @@ async fn start_torrent(
         ..Default::default()
     };
 
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let response = session
         .add_torrent(
             torrent_source(&url)?,
@@ -666,7 +673,7 @@ async fn pause_torrent(
     torrent_id: usize,
     state: tauri::State<'_, TorrentState>,
 ) -> Result<(), String> {
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let torrent = session
         .get(torrent_id.into())
         .ok_or_else(|| format!("Torrent {torrent_id} not found"))?;
@@ -682,7 +689,7 @@ async fn resume_torrent(
     torrent_id: usize,
     state: tauri::State<'_, TorrentState>,
 ) -> Result<(), String> {
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let torrent = session
         .get(torrent_id.into())
         .ok_or_else(|| format!("Torrent {torrent_id} not found"))?;
@@ -698,7 +705,7 @@ async fn torrent_progress(
     torrent_id: usize,
     state: tauri::State<'_, TorrentState>,
 ) -> Result<TorrentProgressResult, String> {
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let torrent = session
         .get(torrent_id.into())
         .ok_or_else(|| format!("Torrent {torrent_id} not found"))?;
@@ -732,7 +739,7 @@ async fn torrent_wait_until_ready(
     torrent_id: usize,
     state: tauri::State<'_, TorrentState>,
 ) -> Result<(), String> {
-    let session = state.get_session().await;
+    let session = state.get_session().await?;
     let torrent = session
         .get(torrent_id.into())
         .ok_or_else(|| format!("Torrent {torrent_id} not found"))?;
@@ -758,8 +765,7 @@ async fn torrent_wait_until_ready(
             let mut files = Vec::new();
             let details = metadata
                 .info
-                .iter_file_details()
-                .map_err(|e| format!("Failed to read torrent files: {e}"))?;
+                .iter_file_details();
 
             for (index, detail) in details.enumerate() {
                 if let Some(selected) = &only_files {
@@ -768,10 +774,7 @@ async fn torrent_wait_until_ready(
                     }
                 }
 
-                let relative = detail
-                    .filename
-                    .to_string()
-                    .map_err(|_| "Torrent contains an invalid file path".to_string())?;
+                let relative = detail.filename.to_pathbuf();
                 files.push((output_folder.join(relative), detail.len));
             }
 
@@ -1000,7 +1003,7 @@ async fn download_adaptive(
         ));
         let next_range = Arc::new(AtomicUsize::new(0));
         let active_limit = Arc::new(AtomicUsize::new(
-            MIN_PARALLEL.min(max_connections),
+            4.clamp(MIN_PARALLEL, max_connections),
         ));
         let last_sample_bytes = Arc::new(AtomicU64::new(downloaded.load(Ordering::Acquire)));
         let last_sample_at = Arc::new(Mutex::new(Instant::now()));
@@ -1157,12 +1160,15 @@ async fn download_adaptive(
                                 return Err(HTTP_PAUSED.into());
                             }
 
-                            let bytes = chunk.to_vec();
-                            let bytes_len = bytes.len() as u64;
+                            // `reqwest::Bytes` already exposes the response buffer as a
+                            // byte slice. Write it directly instead of cloning every network
+                            // chunk into a second Vec<u8>; this reduces allocation/copy churn
+                            // substantially on high-throughput downloads.
+                            let bytes_len = chunk.len() as u64;
                             let write_offset = offset;
 
                             // Direct positioned write without global file-position lock
-                            write_at(&file, write_offset, &bytes)
+                            write_at(&file, write_offset, &chunk)
                                 .map_err(|e| format!("Failed to write chunk at offset {write_offset}: {e}"))?;
 
                             offset += bytes_len;
@@ -1216,6 +1222,7 @@ async fn download_adaptive(
         let started = Instant::now();
         let mut last_emit = Instant::now();
         let mut previous_speed = 0u64;
+        let mut smoothed_speed = 0u64;
 
         loop {
             if cancellation.load(Ordering::Acquire) {
@@ -1261,14 +1268,22 @@ async fn download_adaptive(
             if elapsed >= Duration::from_millis(250) {
                 let previous = last_sample_bytes.swap(completed, Ordering::AcqRel);
                 let sample_seconds = elapsed.as_secs_f64().max(0.001);
-                let current_speed =
+                let instant_speed =
                     ((completed.saturating_sub(previous)) as f64 / sample_seconds) as u64;
+
+                // Smooth out short-term HTTP chunk jitter with an Exponential Moving Average (EMA).
+                // Weight: 70% history, 30% instant sample.
+                smoothed_speed = if smoothed_speed == 0 {
+                    instant_speed
+                } else {
+                    ((smoothed_speed as f64 * 0.70) + (instant_speed as f64 * 0.30)) as u64
+                };
 
                 on_event
                     .send(DownloadEvent::Progress {
                         downloaded: completed,
                         total,
-                        speed: current_speed,
+                        speed: smoothed_speed,
                         connections: active_limit.load(Ordering::Relaxed),
                     })
                     .map_err(|e| e.to_string())?;
@@ -1277,18 +1292,20 @@ async fn download_adaptive(
 
                 if now
                     .duration_since(*last_sample_at.lock().unwrap())
-                    >= Duration::from_secs(2)
+                    >= Duration::from_secs(3)
                 {
                     let mut sample_at = last_sample_at.lock().unwrap();
                     *sample_at = now;
-                    let current = current_speed;
+                    let current = smoothed_speed;
                     let limit = active_limit.load(Ordering::Acquire);
 
                     if current > 0 && previous_speed > 0 {
                         let ratio = current as f64 / previous_speed as f64;
-                        if ratio < 0.85 && limit > MIN_PARALLEL {
+                        // Avoid flapping connections over brief network fluctuations;
+                        // only step down if speed drops significantly (>30% sustained decline).
+                        if ratio < 0.70 && limit > MIN_PARALLEL {
                             active_limit.fetch_sub(1, Ordering::AcqRel);
-                        } else if ratio >= 0.97 && limit < max_connections {
+                        } else if ratio >= 0.95 && limit < max_connections {
                             active_limit.fetch_add(1, Ordering::AcqRel);
                         }
                     } else if current > 0 && limit < max_connections {
@@ -1407,6 +1424,7 @@ async fn single_stream_download(
     let mut response = response;
     let mut last_at = Instant::now();
     let mut last_bytes = downloaded;
+    let mut smoothed_speed = 0u64;
 
     while let Some(chunk) = response
         .chunk()
@@ -1424,12 +1442,18 @@ async fn single_stream_download(
         let now = Instant::now();
         if now.duration_since(last_at) >= Duration::from_millis(250) {
             let secs = now.duration_since(last_at).as_secs_f64().max(0.001);
-            let speed = ((downloaded.saturating_sub(last_bytes)) as f64 / secs) as u64;
+            let instant_speed = ((downloaded.saturating_sub(last_bytes)) as f64 / secs) as u64;
+            smoothed_speed = if smoothed_speed == 0 {
+                instant_speed
+            } else {
+                ((smoothed_speed as f64 * 0.70) + (instant_speed as f64 * 0.30)) as u64
+            };
+
             on_event
                 .send(DownloadEvent::Progress {
                     downloaded,
                     total,
-                    speed,
+                    speed: smoothed_speed,
                     connections: 1,
                 })
                 .map_err(|e| e.to_string())?;
@@ -1486,6 +1510,7 @@ async fn single_stream_restart(
     let mut downloaded = 0u64;
     let mut last_at = Instant::now();
     let mut last_bytes = 0u64;
+    let mut smoothed_speed = 0u64;
 
     while let Some(chunk) = response
         .chunk()
@@ -1503,12 +1528,18 @@ async fn single_stream_restart(
         let now = Instant::now();
         if now.duration_since(last_at) >= Duration::from_millis(250) {
             let secs = now.duration_since(last_at).as_secs_f64().max(0.001);
-            let speed = ((downloaded.saturating_sub(last_bytes)) as f64 / secs) as u64;
+            let instant_speed = ((downloaded.saturating_sub(last_bytes)) as f64 / secs) as u64;
+            smoothed_speed = if smoothed_speed == 0 {
+                instant_speed
+            } else {
+                ((smoothed_speed as f64 * 0.70) + (instant_speed as f64 * 0.30)) as u64
+            };
+
             on_event
                 .send(DownloadEvent::Progress {
                     downloaded,
                     total,
-                    speed,
+                    speed: smoothed_speed,
                     connections: 1,
                 })
                 .map_err(|e| e.to_string())?;
@@ -1563,7 +1594,7 @@ async fn delete_incomplete_transfer(
 ) -> Result<(), String> {
     // If this is a managed torrent, remove it first so librqbit releases any
     // open file handles before Windows/Linux/macOS are asked to delete files.
-    let session = torrent_state.get_session().await;
+    let session = torrent_state.get_session().await?;
     if let Some(id) = torrent_id {
         if session.get(id.into()).is_some() {
             session
@@ -1825,7 +1856,7 @@ async fn update_torrent_engine_config(
             .map_err(|e| format!("Failed to update BitTorrent session: {e}"))?;
 
         let mut write_lock = state.session.write().await;
-        *write_lock = new_session;
+        *write_lock = Some(new_session);
     }
 
     if let Ok(mut cfg_guard) = state.config.lock() {
@@ -1894,20 +1925,19 @@ fn main() {
                 client_id_spoof: Some("Transmission".to_string()),
             };
 
-            let opts = make_session_options(Some(&default_config));
-            let session = tauri::async_runtime::block_on(
-                Session::new_with_opts(output_folder, opts)
-            )
-            .map_err(|e| {
-                format!(
-                    "Failed to create BitTorrent session: {e}"
-                )
-            })?;
-
-            app.manage(TorrentState {
-                session: Arc::new(tokio::sync::RwLock::new(session)),
+            let torrent_state = TorrentState {
+                session: Arc::new(tokio::sync::RwLock::new(None)),
                 config: Arc::new(Mutex::new(default_config)),
+                output_folder,
+            };
+
+            // Warm up the BitTorrent session in the background so the UI window mounts immediately
+            let bg_torrent_state = torrent_state.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = bg_torrent_state.get_session().await;
             });
+
+            app.manage(torrent_state);
             app.manage(PendingExternalTransfer(Mutex::new(
                 std::env::args()
                     .skip(1)

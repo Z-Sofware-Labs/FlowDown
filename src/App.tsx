@@ -221,6 +221,49 @@ export default function App() {
   const activeTransfers = useRef<Set<string>>(new Set());
   const pausedTorrentIds = useRef<Set<string>>(new Set());
   const abortedTransferIds = useRef<Set<string>>(new Set());
+  const latestDownloadsRef = useRef(downloads);
+  const pendingRuntimeUpdates = useRef<Map<string, (download: DownloadItem) => DownloadItem>>(new Map());
+  const runtimeFlushTimer = useRef<number | null>(null);
+
+  // High-frequency transfer telemetry should not cause one React state update
+  // per native progress event. Coalesce updates from all active transfers into
+  // one queue update every 200ms. This preserves responsive progress while
+  // avoiding N full-array maps/renders when several downloads run together.
+  latestDownloadsRef.current = downloads;
+
+  const scheduleDownloadRuntimeUpdate = (
+    id: string,
+    updater: (download: DownloadItem) => DownloadItem,
+  ) => {
+    pendingRuntimeUpdates.current.set(id, updater);
+
+    if (runtimeFlushTimer.current !== null) return;
+
+    runtimeFlushTimer.current = window.setTimeout(() => {
+      runtimeFlushTimer.current = null;
+      const updates = pendingRuntimeUpdates.current;
+      pendingRuntimeUpdates.current = new Map();
+
+      if (updates.size === 0) return;
+
+      setDownloads((previous) =>
+        previous.map((download) => {
+          const updater = updates.get(download.id);
+          return updater ? updater(download) : download;
+        }),
+      );
+    }, 200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (runtimeFlushTimer.current !== null) {
+        window.clearTimeout(runtimeFlushTimer.current);
+        runtimeFlushTimer.current = null;
+      }
+      pendingRuntimeUpdates.current.clear();
+    };
+  }, []);
 
   // Debounced persistence: keep volatile progress updates in memory and debounce
   // writing to localStorage so 250ms ticks don't re-serialize the entire queue continuously.
@@ -236,18 +279,22 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [downloads]);
 
-  // Ensure download queue is persisted immediately on page unload/close
+  // Keep one stable unload listener. The latest queue is read from a ref so
+  // progress updates do not repeatedly add/remove the window listener.
   useEffect(() => {
     const handleBeforeUnload = () => {
       try {
-        localStorage.setItem('flowdown_downloads_v2', JSON.stringify(downloads));
+        localStorage.setItem(
+          'flowdown_downloads_v2',
+          JSON.stringify(latestDownloadsRef.current),
+        );
       } catch {
         // Ignore
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [downloads]);
+  }, []);
 
 
   // Handle .torrent files and magnet: links opened by the operating system.
@@ -362,7 +409,7 @@ export default function App() {
       } catch {
         // Window might already be visible.
       }
-    }, 500);
+    }, 80);
 
     void restoreStateCurrent(persistentFlags)
       .catch((error) => {
@@ -752,56 +799,57 @@ export default function App() {
           const percent =
             total > 0 ? Math.min(100, (displayDownloaded / total) * 100) : 0;
 
-          setDownloads((previous) =>
-            previous.map((download) => {
-              if (download.id !== item.id) return download;
+          scheduleDownloadRuntimeUpdate(item.id, (download) => {
+            const previousDownloaded = download.downloaded;
+            const downloaded = initializing
+              ? 0
+              : progress.finished
+                ? total
+                : Math.max(
+                    previousDownloaded,
+                    Math.min(progress.downloaded, total),
+                  );
+            const nextChunkProgress = Math.floor(percent);
+            const nextChunkStatus = progress.finished
+              ? 'downloading' as const
+              : initializing
+                ? 'idle' as const
+                : 'downloading' as const;
+            const currentChunkProgress = download.chunks[0]?.progress;
+            const chunks =
+              currentChunkProgress === nextChunkProgress
+                ? download.chunks
+                : download.chunks.map((chunk) => ({
+                    ...chunk,
+                    progress: nextChunkProgress,
+                    status: nextChunkStatus,
+                  }));
 
-              const previousDownloaded = download.downloaded;
-              const downloaded = initializing
+            return {
+              ...download,
+              infoHash: progress.infoHash || torrentInfoHash,
+              size: total,
+              downloaded,
+              speed: initializing || progress.finished ? 0 : measuredSpeed,
+              preparing: progress.finished || initializing,
+              preparingLabel: progress.finished
+                ? 'Preparing file...'
+                : initializing
+                  ? 'Preparing torrent...'
+                  : undefined,
+              activeConnections: initializing || progress.finished
                 ? 0
-                : progress.finished
-                  ? total
-                  : Math.max(
-                      previousDownloaded,
-                      Math.min(progress.downloaded, total),
-                    );
-
-              return {
-                ...download,
-                infoHash: progress.infoHash || torrentInfoHash,
-                size: total,
-                downloaded,
-                speed: initializing || progress.finished ? 0 : measuredSpeed,
-                preparing: progress.finished || initializing,
-                preparingLabel: progress.finished
-                  ? 'Preparing file...'
-                  : initializing
-                    ? 'Preparing torrent...'
-                    : undefined,
-                activeConnections: initializing || progress.finished
-                  ? 0
-                  : download.connections,
-                speedHistory:
-                  initializing || progress.finished
-                    ? download.speedHistory
-                    : [
-                        ...download.speedHistory.slice(-9),
-                        Number(
-                          (measuredSpeed / (1024 * 1024)).toFixed(1)
-                        ),
-                      ],
-                chunks: download.chunks.map((chunk) => ({
-                  ...chunk,
-                  progress: Math.floor(percent),
-                  status: progress.finished
-                    ? 'downloading'
-                    : initializing
-                      ? 'idle'
-                      : 'downloading',
-                })),
-              };
-            })
-          );
+                : download.connections,
+              speedHistory:
+                initializing || progress.finished
+                  ? download.speedHistory
+                  : [
+                      ...download.speedHistory.slice(-9),
+                      Number((measuredSpeed / (1024 * 1024)).toFixed(1)),
+                    ],
+              chunks,
+            };
+          });
 
           if (progress.finished) {
             await logger.log(
@@ -861,6 +909,7 @@ export default function App() {
 
       let lastProgress = item.downloaded;
       let lastProgressAt = performance.now();
+      let frontendSmoothedSpeed = 0;
 
       await logger.log(`Starting HTTP download: ${item.name} | ${item.url}`);
       await logger.log(`Requested save path: ${item.savePath}`);
@@ -877,45 +926,47 @@ export default function App() {
           );
           const bytesDelta = Math.max(0, progress - lastProgress);
           const measuredSpeed = Math.round(bytesDelta / elapsedSeconds);
+          frontendSmoothedSpeed =
+            frontendSmoothedSpeed === 0
+              ? measuredSpeed
+              : Math.round(frontendSmoothedSpeed * 0.7 + measuredSpeed * 0.3);
           const speed =
-            transferSpeed > 0 ? Math.round(transferSpeed) : measuredSpeed;
+            transferSpeed > 0 ? Math.round(transferSpeed) : frontendSmoothedSpeed;
 
           lastProgress = progress;
           lastProgressAt = now;
 
-          setDownloads((previous) =>
-            previous.map((download) => {
-              if (download.id !== item.id) return download;
+          scheduleDownloadRuntimeUpdate(item.id, (download) => {
+            const nextSize = total > 0 ? total : download.size;
+            const nextDownloaded = Math.max(download.downloaded, progress);
+            const percent =
+              nextSize > 0
+                ? Math.min(100, (nextDownloaded / nextSize) * 100)
+                : 0;
+            const nextChunkProgress = Math.floor(percent);
+            const chunks =
+              download.chunks[0]?.progress === nextChunkProgress
+                ? download.chunks
+                : download.chunks.map((chunk) => ({
+                    ...chunk,
+                    progress: nextChunkProgress,
+                    status: 'downloading' as const,
+                  }));
 
-              const nextSize = total > 0 ? total : download.size;
-              const nextDownloaded = Math.max(
-                download.downloaded,
-                progress
-              );
-              const percent =
-                nextSize > 0
-                  ? Math.min(100, (nextDownloaded / nextSize) * 100)
-                  : 0;
-
-              return {
-                ...download,
-                status: 'downloading',
-                size: nextSize,
-                downloaded: nextDownloaded,
-                speed,
-                activeConnections,
-                speedHistory: [
-                  ...download.speedHistory.slice(-9),
-                  Number((speed / (1024 * 1024)).toFixed(1)),
-                ],
-                chunks: download.chunks.map((chunk) => ({
-                  ...chunk,
-                  progress: Math.floor(percent),
-                  status: 'downloading' as const,
-                })),
-              };
-            })
-          );
+            return {
+              ...download,
+              status: 'downloading',
+              size: nextSize,
+              downloaded: nextDownloaded,
+              speed,
+              activeConnections,
+              speedHistory: [
+                ...download.speedHistory.slice(-9),
+                Number((speed / (1024 * 1024)).toFixed(1)),
+              ],
+              chunks,
+            };
+          });
         },
         item.id,
       );
@@ -1076,42 +1127,70 @@ export default function App() {
     sortOrder,
   ]);
 
-  const counts = useMemo(
-    () => ({
-      all: downloads.length,
-      downloading: downloads.filter((d) => d.status === 'downloading').length,
-      paused: downloads.filter((d) => d.status === 'paused').length,
-      completed: downloads.filter((d) => d.status === 'completed').length,
-      queued: downloads.filter((d) => d.status === 'queued').length,
-      torrent: downloads.filter((d) => d.fileType === 'torrent' || d.isTorrent)
-        .length,
-      video: downloads.filter((d) => d.fileType === 'video').length,
-      audio: downloads.filter((d) => d.fileType === 'audio').length,
-      software: downloads.filter((d) => d.fileType === 'software').length,
-      archive: downloads.filter((d) => d.fileType === 'archive').length,
-      document: downloads.filter((d) => d.fileType === 'document').length,
-      image: downloads.filter((d) => d.fileType === 'image').length,
-    }),
-    [downloads]
-  );
+  // These values are all derived from the same queue snapshot. Compute them in
+  // one pass instead of performing multiple filter/reduce traversals every time
+  // high-frequency transfer telemetry updates the queue.
+  const queueStats = useMemo(() => {
+    const stats = {
+      counts: {
+        all: downloads.length,
+        downloading: 0,
+        paused: 0,
+        completed: 0,
+        queued: 0,
+        torrent: 0,
+        video: 0,
+        audio: 0,
+        software: 0,
+        archive: 0,
+        document: 0,
+        image: 0,
+      },
+      totalActiveSpeed: 0,
+      activeCount: 0,
+      totalDownloadedToday: 0,
+    };
 
-  const totalActiveSpeed = useMemo(
-    () =>
-      downloads
-        .filter((download) => download.status === 'downloading')
-        .reduce((sum, download) => sum + download.speed, 0),
-    [downloads]
-  );
+    for (const download of downloads) {
+      stats.totalDownloadedToday += download.downloaded;
 
-  const activeCount = useMemo(
-    () => downloads.filter((download) => download.status === 'downloading').length,
-    [downloads]
-  );
+      switch (download.status) {
+        case 'downloading':
+          stats.counts.downloading += 1;
+          stats.activeCount += 1;
+          stats.totalActiveSpeed += download.speed;
+          break;
+        case 'paused':
+          stats.counts.paused += 1;
+          break;
+        case 'completed':
+          stats.counts.completed += 1;
+          break;
+        case 'queued':
+          stats.counts.queued += 1;
+          break;
+      }
 
-  const totalDownloadedToday = useMemo(
-    () => downloads.reduce((sum, download) => sum + download.downloaded, 0),
-    [downloads]
-  );
+      if (download.fileType === 'torrent' || download.isTorrent) stats.counts.torrent += 1;
+      if (download.fileType === 'video') stats.counts.video += 1;
+      if (download.fileType === 'audio') stats.counts.audio += 1;
+      if (download.fileType === 'software') stats.counts.software += 1;
+      if (download.fileType === 'archive') stats.counts.archive += 1;
+      if (download.fileType === 'document') stats.counts.document += 1;
+      if (download.fileType === 'image') stats.counts.image += 1;
+    }
+
+    return stats;
+  }, [downloads]);
+
+  const {
+    counts,
+    totalActiveSpeed,
+    activeCount,
+    totalDownloadedToday,
+  } = queueStats;
+
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const handleTogglePause = async (id: string) => {
     const item = downloads.find((download) => download.id === id);
@@ -1327,7 +1406,7 @@ export default function App() {
 
   const handlePauseSelected = () => {
     const active = downloads.filter(
-      (item) => selectedIds.includes(item.id) && item.status === 'downloading'
+      (item) => selectedIdSet.has(item.id) && item.status === 'downloading'
     );
 
     active.forEach((item) => handleTogglePause(item.id));
@@ -1336,7 +1415,7 @@ export default function App() {
   const handleResumeSelected = () => {
     const resumable = downloads.filter(
       (item) =>
-        selectedIds.includes(item.id) &&
+        selectedIdSet.has(item.id) &&
         (item.status === 'paused' || item.status === 'queued')
     );
 
@@ -1352,7 +1431,7 @@ export default function App() {
   };
 
   const handleDeleteSelected = async () => {
-    const items = downloads.filter((item) => selectedIds.includes(item.id));
+    const items = downloads.filter((item) => selectedIdSet.has(item.id));
     if (items.length === 0) return;
 
     const removableIds: string[] = [];
@@ -1621,7 +1700,7 @@ export default function App() {
                 <DownloadItemRow
                   key={item.id}
                   item={item}
-                  isSelected={selectedIds.includes(item.id)}
+                  isSelected={selectedIdSet.has(item.id)}
                   onToggleSelect={handleToggleSelect}
                   onTogglePause={handleTogglePause}
                   onDelete={handleDelete}

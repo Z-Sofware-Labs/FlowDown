@@ -22,7 +22,7 @@ export type UpdateDownloadProgress = {
  * Check GitHub Releases for available FlowDown updates.
  */
 export async function checkForUpdate(): Promise<AppUpdateInfo> {
-  let appVersion = '1.1.4';
+  let appVersion = '1.1.5';
   if (isTauri()) {
     try {
       appVersion = await getVersion();
