@@ -184,14 +184,7 @@ export default function App() {
     }
   };
 
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light';
-    }
-    return 'dark';
-  });
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
 
   const [settings, setSettings] = useState<GlobalSettings>(() => ({
     maxSimultaneousDownloads: 3,
@@ -566,8 +559,26 @@ export default function App() {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('dark', theme === 'dark');
-    root.style.colorScheme = theme;
+
+    const applyTheme = () => {
+      let isDark = false;
+      if (theme === 'system') {
+        isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      } else {
+        isDark = theme === 'dark';
+      }
+      root.classList.toggle('dark', isDark);
+      root.style.colorScheme = isDark ? 'dark' : 'light';
+    };
+
+    applyTheme();
+
+    if (theme === 'system' && window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => applyTheme();
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -627,7 +638,7 @@ export default function App() {
   };
 
   const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
+    const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
     setTheme(next);
     setSettings((current) => ({ ...current, theme: next }));
   };
@@ -646,7 +657,15 @@ export default function App() {
     setDownloads((previous) =>
       previous.map((download) =>
         download.id === item.id
-          ? { ...download, status: 'downloading', speed: 0 }
+          ? {
+              ...download,
+              status: 'downloading',
+              speed: 0,
+              preparing: true,
+              preparingLabel: item.isTorrent || item.fileType === 'torrent' || item.engine === 'librqbit'
+                ? 'Connecting to peer swarm...'
+                : 'Establishing connection & splitting...',
+            }
           : download
       )
     );
@@ -771,8 +790,16 @@ export default function App() {
 
           const initializing = progress.state.toLowerCase() === 'initializing';
           const liveDownloading = !initializing && !progress.finished;
+          
+          // Actual downloaded bytes reported by engine
+          const actualDownloaded = initializing
+            ? 0
+            : progress.finished
+              ? (progress.total > 0 ? progress.total : torrentTotal)
+              : Math.min(progress.downloaded, progress.total > 0 ? progress.total : torrentTotal);
+
           const delta = liveDownloading
-            ? Math.max(0, progress.downloaded - lastDownloaded)
+            ? Math.max(0, actualDownloaded - lastDownloaded)
             : 0;
           const measuredSpeed = liveDownloading
             ? Math.round(delta / elapsed)
@@ -782,7 +809,7 @@ export default function App() {
             lastDownloaded = 0;
             lastAt = now;
           } else {
-            lastDownloaded = progress.downloaded;
+            lastDownloaded = actualDownloaded;
             lastAt = now;
           }
 
@@ -791,24 +818,10 @@ export default function App() {
               ? progress.total
               : torrentTotal;
 
-          const displayDownloaded = initializing
-            ? 0
-            : progress.finished
-              ? total
-              : Math.min(progress.downloaded, total);
           const percent =
-            total > 0 ? Math.min(100, (displayDownloaded / total) * 100) : 0;
+            total > 0 ? Math.min(100, (actualDownloaded / total) * 100) : 0;
 
           scheduleDownloadRuntimeUpdate(item.id, (download) => {
-            const previousDownloaded = download.downloaded;
-            const downloaded = initializing
-              ? 0
-              : progress.finished
-                ? total
-                : Math.max(
-                    previousDownloaded,
-                    Math.min(progress.downloaded, total),
-                  );
             const nextChunkProgress = Math.floor(percent);
             const nextChunkStatus = progress.finished
               ? 'downloading' as const
@@ -825,23 +838,28 @@ export default function App() {
                     status: nextChunkStatus,
                   }));
 
+            const isWaitingForPeers = initializing || (liveDownloading && actualDownloaded === 0 && measuredSpeed === 0);
+            const isPreparing = progress.finished || initializing || isWaitingForPeers;
+
             return {
               ...download,
               infoHash: progress.infoHash || torrentInfoHash,
               size: total,
-              downloaded,
-              speed: initializing || progress.finished ? 0 : measuredSpeed,
-              preparing: progress.finished || initializing,
+              downloaded: actualDownloaded,
+              speed: isPreparing || progress.finished ? 0 : measuredSpeed,
+              preparing: isPreparing,
               preparingLabel: progress.finished
                 ? 'Preparing file...'
                 : initializing
-                  ? 'Preparing torrent...'
-                  : undefined,
+                  ? 'Allocating & verifying pieces...'
+                  : isWaitingForPeers
+                    ? 'Connecting to peers & searching swarm...'
+                    : undefined,
               activeConnections: initializing || progress.finished
                 ? 0
                 : download.connections,
               speedHistory:
-                initializing || progress.finished
+                isPreparing || progress.finished
                   ? download.speedHistory
                   : [
                       ...download.speedHistory.slice(-9),
@@ -1856,7 +1874,7 @@ export default function App() {
           settings={settings}
           onUpdateSettings={(newSettings) => {
             setSettings((previous) => ({ ...previous, ...newSettings }));
-            if (newSettings.theme === 'dark' || newSettings.theme === 'light') {
+            if (newSettings.theme) {
               setTheme(newSettings.theme);
             }
           }}

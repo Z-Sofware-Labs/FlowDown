@@ -17,7 +17,8 @@ import {
   Radio,
   ShieldCheck,
   Users,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
 import { DownloadItem, FileType } from '../types';
 import { formatBytes, formatSpeed, formatEta, getFileTypeBadgeColor } from '../utils/formatters';
@@ -245,8 +246,9 @@ const DownloadItemRowComponent: React.FC<DownloadItemRowProps> = ({
             {item.status === 'downloading' && (
               <>
                 {item.preparing ? (
-                  <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                    {item.preparingLabel || 'Preparing...'}
+                  <span className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 font-semibold animate-pulse">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" />
+                    <span>{item.preparingLabel || 'Connecting & preparing...'}</span>
                   </span>
                 ) : (
                   <>
@@ -266,18 +268,22 @@ const DownloadItemRowComponent: React.FC<DownloadItemRowProps> = ({
 
         {/* Outer Bar */}
         <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden relative">
-          <div
-            className={`h-full rounded-full transition-all duration-300 relative ${
-              item.status === 'completed'
-                ? 'bg-emerald-500 dark:bg-emerald-400'
-                : item.status === 'paused'
-                ? 'bg-amber-400'
-                : item.isTorrent
-                ? 'bg-teal-500 dark:bg-teal-400'
-                : 'bg-blue-500 dark:bg-blue-400'
-            }`}
-            style={{ width: `${barPercent}%` }}
-          />
+          {item.status === 'downloading' && item.preparing && percent === 0 ? (
+            <div className="h-full w-full bg-gradient-to-r from-amber-400/40 via-amber-500 to-amber-400/40 animate-pulse" />
+          ) : (
+            <div
+              className={`h-full rounded-full transition-all duration-300 relative ${
+                item.status === 'completed'
+                  ? 'bg-emerald-500 dark:bg-emerald-400'
+                  : item.status === 'paused'
+                  ? 'bg-amber-400'
+                  : item.isTorrent
+                  ? 'bg-teal-500 dark:bg-teal-400'
+                  : 'bg-blue-500 dark:bg-blue-400'
+              }`}
+              style={{ width: `${barPercent}%` }}
+            />
+          )}
         </div>
       </div>
 
@@ -294,18 +300,22 @@ const DownloadItemRowComponent: React.FC<DownloadItemRowProps> = ({
                 title={`Peer Chunk ${chunk.id + 1}: ${chunk.progress}%`}
                 className="h-1.5 flex-1 bg-slate-100 dark:bg-slate-800 rounded-xs overflow-hidden border border-slate-200/60 dark:border-slate-700/60"
               >
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    item.status === 'completed'
-                      ? 'bg-emerald-400'
-                      : item.status === 'paused'
-                      ? 'bg-amber-400'
-                      : item.isTorrent
-                      ? 'bg-teal-400'
-                      : 'bg-blue-400'
-                  }`}
-                  style={{ width: `${chunk.progress}%` }}
-                />
+                {item.status === 'downloading' && item.preparing && chunk.progress === 0 ? (
+                  <div className="h-full w-full bg-amber-400/50 animate-pulse" />
+                ) : (
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      item.status === 'completed'
+                        ? 'bg-emerald-400'
+                        : item.status === 'paused'
+                        ? 'bg-amber-400'
+                        : item.isTorrent
+                        ? 'bg-teal-400'
+                        : 'bg-blue-400'
+                    }`}
+                    style={{ width: `${chunk.progress}%` }}
+                  />
+                )}
               </div>
             ))}
           </div>

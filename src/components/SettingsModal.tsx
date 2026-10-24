@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Settings, HardDrive, Volume2, Gauge, Zap, Check, Radio, ShieldCheck, Lock, Sun, Moon, Minimize2, Shuffle, Link, FileType, Sparkles } from 'lucide-react';
+import { X, Settings, HardDrive, Volume2, Gauge, Zap, Check, Radio, ShieldCheck, Lock, Sun, Moon, Monitor, Minimize2, Shuffle, Link, FileType, Sparkles } from 'lucide-react';
 import { GlobalSettings } from '../types';
 import { resolveDownloadPath, registerFileAssociationsNative, isTauriEnvironment } from '../utils/tauri';
 
@@ -104,30 +104,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Sun className="h-4 w-4 text-amber-500" />
                   <span>Appearance Theme</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => onUpdateSettings({ theme: 'light' })}
-                    className={`flex items-center justify-center space-x-2.5 py-2.5 px-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+                    className={`flex items-center justify-center space-x-1.5 py-2.5 px-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
                       settings.theme === 'light'
                         ? 'bg-amber-50 dark:bg-slate-800 border-amber-400 dark:border-amber-500 text-slate-900 dark:text-white ring-2 ring-amber-400/20'
                         : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                     }`}
                   >
-                    <Sun className="h-4 w-4 text-amber-500" />
-                    <span>Light Mode</span>
+                    <Sun className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                    <span>Light</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => onUpdateSettings({ theme: 'dark' })}
-                    className={`flex items-center justify-center space-x-2.5 py-2.5 px-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+                    className={`flex items-center justify-center space-x-1.5 py-2.5 px-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
                       settings.theme === 'dark'
                         ? 'bg-indigo-900/40 border-indigo-500 text-slate-900 dark:text-white ring-2 ring-indigo-500/20'
                         : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                     }`}
                   >
-                    <Moon className="h-4 w-4 text-indigo-400" />
-                    <span>Dark Mode</span>
+                    <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                    <span>Dark</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateSettings({ theme: 'system' })}
+                    className={`flex items-center justify-center space-x-1.5 py-2.5 px-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-sm ${
+                      settings.theme === 'system'
+                        ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-slate-900 dark:text-white ring-2 ring-blue-500/20'
+                        : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <Monitor className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    <span>System</span>
                   </button>
                 </div>
               </div>
