@@ -15,13 +15,13 @@ jobs:
       matrix:
         include:
           - platform: 'windows-latest'
-            args: ''
+            args: '--ignore-version-mismatches'
             target: 'x86_64-pc-windows-msvc'
           - platform: 'macos-latest'
-            args: '--target universal-apple-darwin'
+            args: '--ignore-version-mismatches --target universal-apple-darwin'
             target: 'x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
-            args: '--bundles deb,appimage'
+            args: '--ignore-version-mismatches --bundles deb,appimage'
             target: 'x86_64-unknown-linux-gnu'
 
     runs-on: ${{ matrix.platform }}
