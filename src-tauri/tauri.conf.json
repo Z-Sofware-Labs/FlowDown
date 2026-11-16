@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/v2/toolchains/cli/schema/tauri.schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "FlowDown",
   "mainBinaryName": "flowdown",
   "version": "2.0.0",
