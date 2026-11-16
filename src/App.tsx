@@ -474,11 +474,6 @@ export default function App() {
           torrentEngine.updateLibqrbitConfig(cfg);
         }
       }
-      const assocTorrents = persisted?.systemSettings?.associateTorrents ?? true;
-      const assocMagnets = persisted?.systemSettings?.associateMagnets ?? true;
-      if (assocTorrents || assocMagnets) {
-        void apiClient.registerAssociations(assocTorrents, assocMagnets);
-      }
     });
 
     // Check if the OS launched FlowDown via double-clicked .torrent file or magnet:// link

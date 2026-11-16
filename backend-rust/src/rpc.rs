@@ -1221,9 +1221,13 @@ fn open_native_item(path: &Path) -> Value {
     let launched = if exists && !is_dir {
         // Open file directly with default application
         if os == "windows" {
+            #[cfg(target_os = "windows")]
+            use std::os::windows::process::CommandExt;
             let win_path = path.to_string_lossy().replace('/', "\\");
             let mut cmd = std::process::Command::new("cmd");
             cmd.args(["/c", "start", "", &win_path]);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(0x08000000);
             cmd.spawn().is_ok()
         } else if os == "macos" {
             let mut cmd = std::process::Command::new("open");
@@ -1457,6 +1461,9 @@ fn register_os_associations(torrents: bool, magnets: bool) -> Value {
         message = "Registered LaunchServices CFBundleDocumentTypes (.torrent) & magnet:// URL scheme for FlowDown.app.".to_string();
     } else if os == "windows" {
         let open_cmd = format!("\"{}\" \"%1\"", exe_path);
+        #[cfg(target_os = "windows")]
+        use std::os::windows::process::CommandExt;
+
         let mut reg_ok = true;
 
         if torrents {
@@ -1471,8 +1478,14 @@ fn register_os_associations(torrents: bool, magnets: bool) -> Value {
                 &["add", r"HKCU\Software\Classes\FlowDown.Torrent\shell\open\command", "/ve", "/d", &open_cmd, "/f"],
             ];
             for args in cmds {
-                if std::process::Command::new("reg").args(*args).status().map(|s| !s.success()).unwrap_or(true) {
-                    reg_ok = false;
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = std::process::Command::new("reg");
+                    cmd.args(*args);
+                    cmd.creation_flags(0x08000000);
+                    if cmd.status().map(|s| !s.success()).unwrap_or(true) {
+                        reg_ok = false;
+                    }
                 }
             }
         }
@@ -1485,14 +1498,26 @@ fn register_os_associations(torrents: bool, magnets: bool) -> Value {
                 &["add", r"HKCU\Software\Classes\magnet\shell\open\command", "/ve", "/d", &open_cmd, "/f"],
             ];
             for args in cmds {
-                if std::process::Command::new("reg").args(*args).status().map(|s| !s.success()).unwrap_or(true) {
-                    reg_ok = false;
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = std::process::Command::new("reg");
+                    cmd.args(*args);
+                    cmd.creation_flags(0x08000000);
+                    if cmd.status().map(|s| !s.success()).unwrap_or(true) {
+                        reg_ok = false;
+                    }
                 }
             }
         }
 
         // Refresh Windows Explorer file association icon cache immediately
-        let _ = std::process::Command::new("ie4uinit.exe").arg("-show").spawn();
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = std::process::Command::new("ie4uinit.exe");
+            cmd.arg("-show");
+            cmd.creation_flags(0x08000000);
+            let _ = cmd.spawn();
+        }
 
         message = if reg_ok {
             format!("Registered HKCU\\Software\\Classes\\.torrent (DefaultIcon -> {}) and magnet:// protocol handlers.", torrent_icon_val)

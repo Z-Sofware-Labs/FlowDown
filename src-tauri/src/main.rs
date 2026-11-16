@@ -436,6 +436,9 @@ fn register_file_associations(torrents: bool, magnets: bool) -> serde_json::Valu
         .unwrap_or_else(|| format!("\"{}\",0", exe_path));
 
     let message = if os == "windows" {
+        #[cfg(target_os = "windows")]
+        use std::os::windows::process::CommandExt;
+
         let open_cmd = format!("\"{}\" \"%1\"", exe_path);
         if torrents {
             let cmds: &[&[&str]] = &[
@@ -449,7 +452,13 @@ fn register_file_associations(torrents: bool, magnets: bool) -> serde_json::Valu
                 &["add", r"HKCU\Software\Classes\FlowDown.Torrent\shell\open\command", "/ve", "/d", &open_cmd, "/f"],
             ];
             for args in cmds {
-                let _ = std::process::Command::new("reg").args(*args).status();
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = std::process::Command::new("reg");
+                    cmd.args(*args);
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                    let _ = cmd.status();
+                }
             }
         }
         if magnets {
@@ -460,10 +469,22 @@ fn register_file_associations(torrents: bool, magnets: bool) -> serde_json::Valu
                 &["add", r"HKCU\Software\Classes\magnet\shell\open\command", "/ve", "/d", &open_cmd, "/f"],
             ];
             for args in cmds {
-                let _ = std::process::Command::new("reg").args(*args).status();
+                #[cfg(target_os = "windows")]
+                {
+                    let mut cmd = std::process::Command::new("reg");
+                    cmd.args(*args);
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                    let _ = cmd.status();
+                }
             }
         }
-        let _ = std::process::Command::new("ie4uinit.exe").arg("-show").spawn();
+        #[cfg(target_os = "windows")]
+        {
+            let mut cmd = std::process::Command::new("ie4uinit.exe");
+            cmd.arg("-show");
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            let _ = cmd.spawn();
+        }
         format!(
             "Registered HKCU\\Software\\Classes\\.torrent (DefaultIcon -> {}) & magnet:// (DefaultIcon -> {})",
             torrent_icon_val, magnet_icon_val
