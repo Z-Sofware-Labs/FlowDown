@@ -232,7 +232,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
             setUpdateStatusText(`Downloading v${res.latestVersion}... ${p.percentage}%`);
           });
           setUpdateDownloadProgress(100);
-          setUpdateStatusText('Requesting administrator privileges...');
+          setUpdateStatusText('Applying update...');
         } else {
           setUpdateStatusText(`⚡ New release available: v${res.latestVersion}`);
           setUpdateReleaseUrl(res.releaseUrl || 'https://github.com/Z-Sofware-Labs/FlowDown/releases');

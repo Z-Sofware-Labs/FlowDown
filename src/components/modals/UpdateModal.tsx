@@ -154,7 +154,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ isOpen, onClose, osSty
             {state === 'checking' && 'Checking for Updates...'}
             {state === 'up-to-date' && 'FlowDown is Up to Date'}
             {state === 'downloading' && `Downloading FlowDown v${latestVersion || ''}`}
-            {state === 'elevating' && 'Requesting Administrator Privileges...'}
+            {state === 'elevating' && 'Applying Update...'}
             {state === 'error' && 'Update Check Failed'}
           </h3>
 
@@ -173,7 +173,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ isOpen, onClose, osSty
             )}
             {state === 'elevating' && (
               <>
-                Please grant administrator privileges when prompted by Windows (UAC). FlowDown will install passively and relaunch automatically.
+                Please approve the system permission prompt if requested. FlowDown will apply the update and relaunch automatically.
               </>
             )}
             {state === 'error' && (
@@ -211,7 +211,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ isOpen, onClose, osSty
                 <span>Action Required</span>
               </div>
               <p className="opacity-90 leading-tight">
-                Click <strong>Yes</strong> on the User Account Control (UAC) prompt on your desktop to allow the update installer to replace files and relaunch FlowDown.
+                Confirm the system permission prompt if requested to allow the update to install and relaunch FlowDown automatically.
               </p>
             </div>
           )}
