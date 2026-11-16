@@ -130,7 +130,7 @@ impl DaemonEngine {
             session_downloaded: Arc::new(AtomicU64::new(0)),
             session_uploaded: Arc::new(AtomicU64::new(0)),
             libqrbit,
-            http_downloader: Arc::new(HttpDownloader::new("FlowDown/2.0.0 (RustCore)")),
+            http_downloader: Arc::new(HttpDownloader::new("FlowDown/2.0.1 (RustCore)")),
             http_controls: Arc::new(RwLock::new(HashMap::new())),
             swarm_controls: Arc::new(RwLock::new(HashMap::new())),
             rqbit_session: Arc::new(tokio::sync::RwLock::new(None)),

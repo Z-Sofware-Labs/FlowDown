@@ -218,10 +218,10 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
         setUpdateStatusText(`⚡ New release available: v${res.latestVersion}`);
         setUpdateReleaseUrl(res.releaseUrl || 'https://github.com/Z-Sofware-Labs/FlowDown/releases');
       } else {
-        setUpdateStatusText(`✓ Up to date (v${res?.currentVersion || '2.0.0'} Stable)`);
+        setUpdateStatusText(`✓ Up to date (v${res?.currentVersion || '2.0.1'} Stable)`);
       }
     } catch {
-      setUpdateStatusText('✓ FlowDown is up to date (v2.0.0 Stable).');
+      setUpdateStatusText('✓ FlowDown is up to date (v2.0.1 Stable).');
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -1432,7 +1432,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                           <span>Software Updates</span>
                         </div>
                         <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                          v2.0.0 Stable
+                          v2.0.1 Stable
                         </span>
                       </div>
 

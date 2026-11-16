@@ -131,7 +131,7 @@ async fn get_or_init_embedded_dispatcher() -> Arc<rpc::RpcDispatcher> {
 
 #[tauri::command]
 fn get_app_version() -> String {
-    "2.0.0".to_string()
+    "2.0.1".to_string()
 }
 
 async fn run_local_evasion_probe() -> Result<serde_json::Value, String> {

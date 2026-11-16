@@ -48,7 +48,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             FlowDown
           </h2>
           <p className="mt-0.5 text-[12px] font-medium text-[var(--os-text-muted)] shrink-0">
-            Version 2.0.0
+            Version 2.0.1
           </p>
 
           {/* Copyright + Publisher Emblem */}

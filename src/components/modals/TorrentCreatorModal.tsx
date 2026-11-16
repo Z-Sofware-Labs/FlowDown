@@ -58,7 +58,7 @@ export const TorrentCreatorModal: React.FC<TorrentCreatorModalProps> = ({
       output_path: outputPath,
       trackers: trackers.split('\n').map((t) => t.trim()).filter(Boolean),
       piece_length: pieceBytesMap[pieceSize] || 4 * 1024 * 1024,
-      comment: includeLibqrbitSignature ? 'FlowDown 2.0.0 libqrbit Stealth Swarm' : undefined,
+      comment: includeLibqrbitSignature ? 'FlowDown 2.0.1 libqrbit Stealth Swarm' : undefined,
       private: isPrivate,
     });
     onCreated(created?.name || torrentName.replace('.torrent', ''), created?.total_size || sourceSizeBytes);
