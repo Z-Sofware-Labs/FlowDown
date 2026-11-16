@@ -1133,6 +1133,48 @@ export class TorrentEngine {
     this.notify();
   }
 
+  public findDuplicate(criteria: {
+    hash?: string;
+    url?: string;
+    name?: string;
+    savePath?: string;
+    magnetUri?: string;
+  }): TorrentItem | undefined {
+    let checkHash = criteria.hash ? criteria.hash.trim().toLowerCase() : '';
+    if (!checkHash && criteria.magnetUri) {
+      const match = criteria.magnetUri.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+      if (match && match[1]) {
+        checkHash = match[1].toLowerCase();
+      }
+    }
+
+    return this.torrents.find((t) => {
+      // 1. Check exact info_hash match (case insensitive)
+      if (checkHash && t.hash) {
+        if (t.hash.trim().toLowerCase() === checkHash) return true;
+      }
+      // 2. Check exact URL match for HTTP downloads
+      if (criteria.url && t.httpUrl) {
+        if (t.httpUrl.trim().toLowerCase() === criteria.url.trim().toLowerCase()) return true;
+      }
+      // 3. Check exact name and savePath
+      if (criteria.name && t.name) {
+        const normName = criteria.name.trim().toLowerCase();
+        const tNormName = t.name.trim().toLowerCase();
+        if (normName === tNormName) {
+          if (criteria.savePath && t.savePath) {
+            const p1 = criteria.savePath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+            const p2 = t.savePath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+            if (p1 === p2) return true;
+          } else {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+  }
+
   public addTorrent(data: {
     name: string;
     size: number;

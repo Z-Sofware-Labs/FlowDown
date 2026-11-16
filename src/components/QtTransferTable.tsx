@@ -830,8 +830,12 @@ export const QtTransferTable: React.FC<QtTransferTableProps> = ({
   };
 
   const handleBulkDelete = () => {
-    selectedIds.forEach((id) => onDelete(id));
-    updateSelection([]);
+    if (onDeleteSelected) {
+      onDeleteSelected();
+    } else {
+      selectedIds.forEach((id) => onDelete(id));
+      updateSelection([]);
+    }
     closeContextMenu();
   };
 

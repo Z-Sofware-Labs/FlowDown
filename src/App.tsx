@@ -22,6 +22,8 @@ import { AnalyzerModal } from './components/modals/AnalyzerModal';
 import { TorrentCreatorModal } from './components/modals/TorrentCreatorModal';
 import { AboutModal } from './components/modals/AboutModal';
 import { UpdateModal } from './components/modals/UpdateModal';
+import { DuplicateTransferModal } from './components/modals/DuplicateTransferModal';
+import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { DownloadInfoModal } from './components/modals/DownloadInfoModal';
 import { RenameTransferModal } from './components/modals/RenameTransferModal';
 import { SubwindowHeader } from './components/modals/SubwindowHeader';
@@ -131,6 +133,15 @@ export default function App() {
   const [isTorrentCreatorOpen, setIsTorrentCreatorOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [duplicateConflict, setDuplicateConflict] = useState<{
+    existingItem: TorrentItem;
+    newItemName: string;
+    type: 'torrent' | 'http';
+    data: any;
+  } | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    items: TorrentItem[];
+  } | null>(null);
   const [downloadInfoTorrentId, setDownloadInfoTorrentId] = useState<string | null>(null);
   const [renameTorrentId, setRenameTorrentId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ title: string; detail: string } | null>(null);
@@ -681,14 +692,27 @@ export default function App() {
     }
   };
 
+  const handleRequestDelete = (ids: string[]) => {
+    const targets = torrents.filter((t) => ids.includes(t.id));
+    if (targets.length > 0) {
+      setDeleteConfirmation({ items: targets });
+    }
+  };
+
+  const handleConfirmDelete = (deleteFiles: boolean) => {
+    if (!deleteConfirmation) return;
+    const count = deleteConfirmation.items.length;
+    deleteConfirmation.items.forEach((t) => torrentEngine.deleteTorrent(t.id, deleteFiles));
+    setSelectedIds([]);
+    setSelectedId(null);
+    setDeleteConfirmation(null);
+    showToast('Transfers Removed', `Removed ${count} transfer(s)${deleteFiles ? ' (files erased from disk)' : ''}.`);
+  };
+
   const handleDeleteSelected = () => {
-    if (selectedIds.length > 0) {
-      selectedIds.forEach((id) => torrentEngine.deleteTorrent(id));
-      setSelectedIds([]);
-      setSelectedId(null);
-    } else if (selectedId) {
-      torrentEngine.deleteTorrent(selectedId);
-      setSelectedId(null);
+    const ids = selectedIds.length > 0 ? selectedIds : selectedId ? [selectedId] : [];
+    if (ids.length > 0) {
+      handleRequestDelete(ids);
     }
   };
 
@@ -906,7 +930,7 @@ export default function App() {
             onResume={(id) => torrentEngine.resumeTorrent(id)}
             onStop={(id) => torrentEngine.stopTorrent(id)}
             onPause={(id) => torrentEngine.pauseTorrent(id)}
-            onDelete={(id) => torrentEngine.deleteTorrent(id)}
+            onDelete={(id) => handleRequestDelete([id])}
             onDeleteSelected={handleDeleteSelected}
             onForceRecheck={(id) => {
               const target = torrents.find((t) => t.id === id);
@@ -998,9 +1022,27 @@ export default function App() {
         defaultDownloadDirectory={defaultDownloadDir}
         initialTorrent={pendingStartupTorrent}
         onAdd={(data) => {
+          const dup = torrentEngine.findDuplicate({
+            hash: data.hash,
+            name: data.name,
+            savePath: data.savePath,
+            magnetUri: data.magnetUri,
+          });
+          if (dup) {
+            setIsAddTorrentOpen(false);
+            setPendingStartupTorrent(null);
+            setDuplicateConflict({
+              existingItem: dup,
+              newItemName: data.name,
+              type: 'torrent',
+              data,
+            });
+            return;
+          }
           setIsAddTorrentOpen(false);
           setPendingStartupTorrent(null);
           torrentEngine.addTorrent(data);
+          showToast('Transfer Added', data.name);
         }}
       />
 
@@ -1008,7 +1050,26 @@ export default function App() {
         isOpen={isAddUrlOpen}
         onClose={() => setIsAddUrlOpen(false)}
         defaultDownloadDirectory={defaultDownloadDir}
-        onAdd={(data) => torrentEngine.addHttpUrlDownload(data)}
+        onAdd={(data) => {
+          const dup = torrentEngine.findDuplicate({
+            url: data.url,
+            name: data.name,
+            savePath: data.savePath,
+          });
+          if (dup) {
+            setIsAddUrlOpen(false);
+            setDuplicateConflict({
+              existingItem: dup,
+              newItemName: data.name,
+              type: 'http',
+              data,
+            });
+            return;
+          }
+          setIsAddUrlOpen(false);
+          torrentEngine.addHttpUrlDownload(data);
+          showToast('Download Started', data.name);
+        }}
       />
 
       <OptionsModal
@@ -1115,15 +1176,31 @@ export default function App() {
         isOpen={isTorrentCreatorOpen}
         onClose={() => setIsTorrentCreatorOpen(false)}
         onCreated={(name, size) => {
-          torrentEngine.addTorrent({
-            name: `${name}.mkv`,
-            size,
-            category: 'Media',
-            priority: 'Normal',
-            libqrbitEnabled: true,
-            obfuscationLevel: 3,
+          const fullName = `${name}.mkv`;
+          const dup = torrentEngine.findDuplicate({
+            name: fullName,
             savePath: defaultDownloadDir,
           });
+          const data = {
+            name: fullName,
+            size,
+            category: 'Media',
+            priority: 'Normal' as Priority,
+            libqrbitEnabled: true,
+            obfuscationLevel: 3 as ObfuscationLevel,
+            savePath: defaultDownloadDir,
+          };
+          if (dup) {
+            setDuplicateConflict({
+              existingItem: dup,
+              newItemName: fullName,
+              type: 'torrent',
+              data,
+            });
+            return;
+          }
+          torrentEngine.addTorrent(data);
+          showToast('Torrent Created & Added', fullName);
         }}
       />
 
@@ -1146,7 +1223,7 @@ export default function App() {
         onPause={(id) => torrentEngine.pauseTorrent(id)}
         onMinimize={() => setDownloadInfoTorrentId(null)}
         onCancel={(id) => {
-          torrentEngine.deleteTorrent(id);
+          handleRequestDelete([id]);
           setDownloadInfoTorrentId(null);
         }}
         onSetSpeedLimit={(id, limitKb) => {
@@ -1166,6 +1243,41 @@ export default function App() {
           showToast('Transfer Renamed', newName);
         }}
       />
+
+      {duplicateConflict && (
+        <DuplicateTransferModal
+          isOpen={!!duplicateConflict}
+          onClose={() => setDuplicateConflict(null)}
+          existingItem={duplicateConflict.existingItem}
+          newItemName={duplicateConflict.newItemName}
+          onOverwrite={() => {
+            torrentEngine.deleteTorrent(duplicateConflict.existingItem.id, true);
+            if (duplicateConflict.type === 'torrent') {
+              torrentEngine.addTorrent(duplicateConflict.data);
+            } else {
+              torrentEngine.addHttpUrlDownload(duplicateConflict.data);
+            }
+            showToast('Transfer Overwritten', duplicateConflict.newItemName);
+            setDuplicateConflict(null);
+          }}
+          onDoNotAdd={() => {
+            showToast('Duplicate Ignored', `Kept existing "${duplicateConflict.existingItem.name}".`);
+            setDuplicateConflict(null);
+          }}
+          onCancel={() => setDuplicateConflict(null)}
+          osStyle={osStyle}
+        />
+      )}
+
+      {deleteConfirmation && (
+        <DeleteConfirmModal
+          isOpen={!!deleteConfirmation}
+          onClose={() => setDeleteConfirmation(null)}
+          items={deleteConfirmation.items}
+          onConfirmDelete={handleConfirmDelete}
+          osStyle={osStyle}
+        />
+      )}
 
       {toast && (
         <div className="fixed bottom-8 right-4 z-50 max-w-sm bg-[var(--os-bg-content)] border border-[var(--os-accent)] rounded shadow-2xl px-3 py-2 text-xs text-[var(--os-text)] animate-in fade-in slide-in-from-bottom-2 duration-150 pointer-events-auto">
