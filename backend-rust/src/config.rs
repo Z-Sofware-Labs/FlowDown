@@ -131,7 +131,7 @@ impl HttpSettings {
             "Edge" => "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0".to_string(),
             "curl" | "cURL" => "curl/8.10.1".to_string(),
             "Custom" if !self.custom_user_agent.trim().is_empty() => self.custom_user_agent.clone(),
-            _ => "FlowDown/2.0.2 (RustCore)".to_string(),
+            _ => "FlowDown/2.0.3 (RustCore)".to_string(),
         }
     }
 

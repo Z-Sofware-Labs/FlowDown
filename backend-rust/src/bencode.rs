@@ -576,7 +576,7 @@ pub fn create_torrent(
     root_dict.insert(b"creation date".to_vec(), BencodeValue::Int(created_ts));
     root_dict.insert(
         b"created by".to_vec(),
-        BencodeValue::Bytes(b"FlowDown 2.0.2".to_vec()),
+        BencodeValue::Bytes(b"FlowDown 2.0.3".to_vec()),
     );
     root_dict.insert(b"info".to_vec(), info_val);
 
