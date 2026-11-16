@@ -79,23 +79,46 @@ FlowDownAssociationPreinstallDone:
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Register only what the user selected on the installer page.
-  ; magnet.ico and torrent.ico are installed to $INSTDIR via bundle.resources.
+  ; Resolve dedicated torrent icon (checks root, icons subfolder, or falls back to main exe).
   ${If} $FlowDownAssociateTorrent == ${BST_CHECKED}
+    StrCpy $0 "$INSTDIR\torrent.ico"
+    ${IfNot} ${FileExists} "$0"
+      ${If} ${FileExists} "$INSTDIR\icons\torrent.ico"
+        StrCpy $0 "$INSTDIR\icons\torrent.ico"
+      ${ElseIf} ${FileExists} "$INSTDIR\icons\torrent-file.ico"
+        StrCpy $0 "$INSTDIR\icons\torrent-file.ico"
+      ${Else}
+        StrCpy $0 "$INSTDIR\flowdown.exe,0"
+      ${EndIf}
+    ${EndIf}
+
     WriteRegStr SHCTX "Software\Classes\.torrent" "" "FlowDown.Torrent"
     WriteRegStr SHCTX "Software\Classes\.torrent\OpenWithProgids" "FlowDown.Torrent" ""
     WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent" "" "BitTorrent File"
-    WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$INSTDIR\torrent.ico"
+    WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$0"
     WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
 
     WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe" "FriendlyAppName" "FlowDown"
-    WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe\DefaultIcon" "" "$INSTDIR\torrent.ico"
+    WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe\DefaultIcon" "" "$0"
     WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe\SupportedTypes" ".torrent" ""
   ${EndIf}
 
+  ; Resolve dedicated magnet icon (checks root, icons subfolder, or falls back to main exe).
   ${If} $FlowDownAssociateMagnet == ${BST_CHECKED}
+    StrCpy $0 "$INSTDIR\magnet.ico"
+    ${IfNot} ${FileExists} "$0"
+      ${If} ${FileExists} "$INSTDIR\icons\magnet.ico"
+        StrCpy $0 "$INSTDIR\icons\magnet.ico"
+      ${ElseIf} ${FileExists} "$INSTDIR\icons\magnet-link.ico"
+        StrCpy $0 "$INSTDIR\icons\magnet-link.ico"
+      ${Else}
+        StrCpy $0 "$INSTDIR\flowdown.exe,0"
+      ${EndIf}
+    ${EndIf}
+
     WriteRegStr SHCTX "Software\Classes\magnet" "" "URL:Magnet Protocol"
     WriteRegStr SHCTX "Software\Classes\magnet" "URL Protocol" ""
-    WriteRegStr SHCTX "Software\Classes\magnet\DefaultIcon" "" "$INSTDIR\magnet.ico"
+    WriteRegStr SHCTX "Software\Classes\magnet\DefaultIcon" "" "$0"
     WriteRegStr SHCTX "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
   ${EndIf}
 
@@ -120,9 +143,13 @@ FlowDownAssociationPreinstallDone:
     DeleteRegKey SHCTX "Software\Classes\Applications\flowdown.exe"
   ${EndIf}
 
-  ; Remove dedicated icon files.
+  ; Remove dedicated icon files if present.
   Delete "$INSTDIR\magnet.ico"
   Delete "$INSTDIR\torrent.ico"
+  Delete "$INSTDIR\icons\magnet.ico"
+  Delete "$INSTDIR\icons\torrent.ico"
+  Delete "$INSTDIR\icons\magnet-link.ico"
+  Delete "$INSTDIR\icons\torrent-file.ico"
 
   System::Call 'shell32::SHChangeNotify(i, i, i, i) (0x08000000, 0, 0, 0)'
 !macroend
