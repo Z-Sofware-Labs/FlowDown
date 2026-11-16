@@ -1496,10 +1496,6 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                           />
                         </div>
                       )}
-
-                      <div className="text-[10px] text-[var(--os-text-muted)] pt-1 border-t border-[var(--os-border-subtle)] flex items-center justify-end">
-                        <span className="font-mono opacity-80">Z-Software-Labs/FlowDown</span>
-                      </div>
                     </div>
                   )}
                 </div>
