@@ -12,6 +12,7 @@ interface QtMenuBarProps {
   onOpenDiagnostic: () => void;
   onOpenAnalyzer: (initialTab?: 'p2p' | 'http') => void;
   onOpenAbout: () => void;
+  onCheckUpdates?: () => void;
   onPauseAll: () => void;
   onResumeAll: () => void;
   onToggleTurtle: () => void;
@@ -42,6 +43,7 @@ export const QtMenuBar: React.FC<QtMenuBarProps> = ({
   onOpenDiagnostic,
   onOpenAnalyzer,
   onOpenAbout,
+  onCheckUpdates,
   onPauseAll,
   onResumeAll,
   onToggleTurtle,
@@ -420,6 +422,13 @@ export const QtMenuBar: React.FC<QtMenuBarProps> = ({
               className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-[var(--os-accent)] hover:text-white text-left transition-colors"
             >
               <span>About FlowDown</span>
+            </button>
+            <div className="h-px bg-[var(--os-border-subtle)] my-1" />
+            <button
+              onClick={() => handleAction(() => onCheckUpdates ? onCheckUpdates() : onOpenLibqrbitSettings())}
+              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-[var(--os-accent)] hover:text-white text-left transition-colors"
+            >
+              <span>Check for Updates...</span>
             </button>
           </div>
         )}

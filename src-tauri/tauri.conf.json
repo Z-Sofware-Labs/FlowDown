@@ -48,6 +48,17 @@
         "role": "Viewer",
         "mimeType": "application/x-bittorrent"
       }
-    ]
+    ],
+    "resources": [
+      "icons/magnet.ico",
+      "icons/torrent.ico",
+      "icons/magnet-link.ico",
+      "icons/torrent-file.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsi"
+      }
+    }
   }
 }

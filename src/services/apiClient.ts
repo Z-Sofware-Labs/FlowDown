@@ -39,12 +39,17 @@ export interface UpdateCheckResponse {
   currentVersion: string;
   latestVersion: string;
   channel: string;
-  isUpToDate: boolean;
-  releaseDate: string;
+  hasUpdate?: boolean;
+  isUpToDate?: boolean;
+  releaseDate?: string;
   mirror: string;
-  sha256: string;
-  features: string[];
-  checkedAt: string;
+  sha256?: string;
+  features?: string[];
+  checkedAt?: string;
+  releaseUrl?: string;
+  releaseNotes?: string;
+  publishedAt?: string;
+  assets?: Array<{ name: string; downloadUrl: string; size: number }>;
 }
 
 export interface ProbeResponse {
@@ -254,15 +259,72 @@ export const apiClient = {
     }
   },
 
-  // 6. Check official software updates against release mirror
+  // 6. Check official software updates on-demand against GitHub Releases
   async checkForUpdates(): Promise<UpdateCheckResponse | null> {
+    const currentVersion = '2.0.0';
     try {
-      const res = await fetch('/api/system/updates/check');
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
+      const resp = await fetch('https://api.github.com/repos/Z-Sofware-Labs/FlowDown/releases/latest', {
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const tag = String(data.tag_name || '').trim();
+        const cleanLatest = tag.replace(/^v/i, '');
+
+        // Compare semver
+        const p1 = cleanLatest.split('.').map((x: string) => parseInt(x, 10) || 0);
+        const p2 = currentVersion.split('.').map((x: string) => parseInt(x, 10) || 0);
+        let hasUpdate = false;
+        for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+          const n1 = p1[i] ?? 0;
+          const n2 = p2[i] ?? 0;
+          if (n1 > n2) {
+            hasUpdate = true;
+            break;
+          }
+          if (n1 < n2) {
+            hasUpdate = false;
+            break;
+          }
+        }
+
+        const assets = Array.isArray(data.assets)
+          ? data.assets.map((a: any) => ({
+              name: String(a.name || ''),
+              downloadUrl: String(a.browser_download_url || ''),
+              size: Number(a.size || 0),
+            }))
+          : [];
+
+        return {
+          success: true,
+          currentVersion,
+          latestVersion: cleanLatest || currentVersion,
+          hasUpdate,
+          channel: 'Stable',
+          mirror: 'GitHub Releases (Z-Sofware-Labs/FlowDown)',
+          releaseUrl: data.html_url || 'https://github.com/Z-Sofware-Labs/FlowDown/releases',
+          releaseNotes: data.body || '',
+          publishedAt: data.published_at,
+          assets,
+        };
+      }
+    } catch (err) {
+      console.warn('[Updater] On-demand GitHub API check error:', err);
     }
+
+    return {
+      success: true,
+      currentVersion,
+      latestVersion: currentVersion,
+      hasUpdate: false,
+      channel: 'Stable',
+      mirror: 'GitHub Releases (Z-Sofware-Labs/FlowDown)',
+      releaseUrl: 'https://github.com/Z-Sofware-Labs/FlowDown/releases',
+    };
   },
 
   // 7. Probe remote HTTP URL for byte ranges and direct speed potential

@@ -175,8 +175,8 @@ export interface SystemSettings {
   minimizeToTray: boolean;
   preventSleepDuringTransfers: boolean;
   updateChannel: 'stable' | 'beta';
-  autoCheckUpdates: boolean;
-  checkIntervalDays: number;
+  autoCheckUpdates?: boolean;
+  checkIntervalDays?: number;
   compactDensity?: boolean;
 }
 

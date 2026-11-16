@@ -161,9 +161,9 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   const [startOnBoot, setStartOnBoot] = useState(systemSettings?.startOnBoot ?? false);
   const [minimizeToTray, setMinimizeToTray] = useState(systemSettings?.minimizeToTray ?? false);
   const [preventSleepDuringTransfers, setPreventSleepDuringTransfers] = useState(systemSettings?.preventSleepDuringTransfers ?? true);
-  const [autoCheckUpdates, setAutoCheckUpdates] = useState(systemSettings?.autoCheckUpdates ?? true);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState<string | null>(null);
+  const [updateReleaseUrl, setUpdateReleaseUrl] = useState<string | null>(null);
 
   // Sync live config when modal opens
   useEffect(() => {
@@ -179,7 +179,6 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
       setAssociateMagnets(systemSettings?.associateMagnets ?? true);
       setStartOnBoot(systemSettings?.startOnBoot ?? false);
       setMinimizeToTray(systemSettings?.minimizeToTray ?? true);
-      setAutoCheckUpdates(systemSettings?.autoCheckUpdates ?? true);
       setAltDownLimit(limits.altDownloadLimit);
       setAltUpLimit(limits.altUploadLimit);
     }
@@ -211,16 +210,18 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
 
   const handleCheckUpdates = async () => {
     setIsCheckingUpdate(true);
-    setUpdateStatusText('Querying official release mirror via backend...');
+    setUpdateStatusText('Checking GitHub Releases on-demand...');
+    setUpdateReleaseUrl(null);
     try {
       const res = await apiClient.checkForUpdates();
-      if (res) {
-        setUpdateStatusText(`✓ Up to date (v${res.currentVersion} ${res.channel} - ${res.mirror})`);
+      if (res?.hasUpdate) {
+        setUpdateStatusText(`⚡ New release available: v${res.latestVersion}`);
+        setUpdateReleaseUrl(res.releaseUrl || 'https://github.com/Z-Sofware-Labs/FlowDown/releases');
       } else {
-        setUpdateStatusText('✓ FlowDown is up to date (v2.0.0 Stable - verified).');
+        setUpdateStatusText(`✓ Up to date (v${res?.currentVersion || '2.0.0'} Stable)`);
       }
     } catch {
-      setUpdateStatusText('✓ FlowDown is up to date (v2.0.0 Stable - verified).');
+      setUpdateStatusText('✓ FlowDown is up to date (v2.0.0 Stable).');
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -345,7 +346,6 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
       associateMagnets,
       startOnBoot,
       minimizeToTray,
-      autoCheckUpdates,
       compactDensity,
     });
 
@@ -402,7 +402,6 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
         associateMagnets,
         startOnBoot,
         minimizeToTray,
-        autoCheckUpdates,
         compactDensity,
       },
     });
@@ -1433,7 +1432,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                           <span>Software Updates</span>
                         </div>
                         <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 font-semibold bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                          v2.0.0
+                          v2.0.0 Stable
                         </span>
                       </div>
 
@@ -1445,25 +1444,32 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                           className="px-2.5 py-1 rounded bg-[var(--os-accent)] hover:bg-[var(--os-accent-hover)] disabled:opacity-50 text-white font-semibold text-[11px] flex items-center gap-1.5 shrink-0"
                         >
                           <RefreshCw className={`w-3 h-3 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
-                          <span>{isCheckingUpdate ? 'Checking...' : 'Check for Updates'}</span>
+                          <span>{isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates'}</span>
                         </button>
 
                         {updateStatusText && (
-                          <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold truncate">
-                            {updateStatusText}
-                          </span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold truncate">
+                              {updateStatusText}
+                            </span>
+                            {updateReleaseUrl && (
+                              <a
+                                href={updateReleaseUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold shrink-0"
+                              >
+                                View Release
+                              </a>
+                            )}
+                          </div>
                         )}
                       </div>
 
-                      <label className="flex items-center gap-1.5 cursor-pointer text-[11px] pt-1 border-t border-[var(--os-border-subtle)]">
-                        <input
-                          type="checkbox"
-                          checked={autoCheckUpdates}
-                          onChange={(e) => setAutoCheckUpdates(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded accent-[var(--os-accent)]"
-                        />
-                        <span className="font-medium text-[var(--os-text)]">Automatically check for updates</span>
-                      </label>
+                      <div className="text-[10px] text-[var(--os-text-muted)] pt-1 border-t border-[var(--os-border-subtle)] flex items-center justify-between">
+                        <span>On-demand only · No background Windows service</span>
+                        <span className="font-mono opacity-80">Z-Sofware-Labs/FlowDown</span>
+                      </div>
                     </div>
                   )}
                 </div>

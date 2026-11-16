@@ -810,6 +810,7 @@ export default function App() {
             onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
             onOpenAnalyzer={(tab) => handleOpenAnalyzer(tab)}
             onOpenAbout={() => setIsAboutOpen(true)}
+            onCheckUpdates={() => setIsLibqrbitSettingsOpen(true)}
             onPauseAll={() => torrentEngine.pauseAll()}
             onResumeAll={() => torrentEngine.resumeAll()}
             onOpenDownloadInfo={() => {
