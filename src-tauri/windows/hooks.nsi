@@ -1,9 +1,8 @@
 ; FlowDown Windows installer hooks.
 ;
-; The NSIS installer itself is per-machine/elevated. FlowDown remains a
-; normal user-level application. The custom association page is declared in
-; installer.nsi so it appears after the normal installer pages and immediately
-; before the file-copy/install page.
+; Supports both per-user and per-machine installation modes via SHCTX.
+; The custom association page is declared in installer.nsi so it appears after
+; the directory selection page and immediately before the file-copy/install page.
 
 !include "nsDialogs.nsh"
 !include "LogicLib.nsh"
@@ -58,19 +57,19 @@ FunctionEnd
   ; only FlowDown's own registration. Never overwrite another application's
   ; association.
   ${If} $FlowDownAssociateTorrent != ${BST_CHECKED}
-    ReadRegStr $0 HKLM "Software\Classes\.torrent" ""
+    ReadRegStr $0 SHCTX "Software\Classes\.torrent" ""
     ${If} $0 == "FlowDown.Torrent"
-      DeleteRegKey HKLM "Software\Classes\FlowDown.Torrent"
-      DeleteRegKey HKLM "Software\Classes\.torrent"
+      DeleteRegKey SHCTX "Software\Classes\FlowDown.Torrent"
+      DeleteRegKey SHCTX "Software\Classes\.torrent"
     ${EndIf}
   ${EndIf}
 
   ${If} $FlowDownAssociateMagnet != ${BST_CHECKED}
-    ReadRegStr $0 HKLM "Software\Classes\magnet" ""
+    ReadRegStr $0 SHCTX "Software\Classes\magnet" ""
     ${If} $0 == "URL:Magnet Protocol"
-      ReadRegStr $1 HKLM "Software\Classes\magnet\shell\open\command" ""
+      ReadRegStr $1 SHCTX "Software\Classes\magnet\shell\open\command" ""
       ${If} $1 == '"$INSTDIR\flowdown.exe" "%1"'
-        DeleteRegKey HKLM "Software\Classes\magnet"
+        DeleteRegKey SHCTX "Software\Classes\magnet"
       ${EndIf}
     ${EndIf}
   ${EndIf}
@@ -82,22 +81,22 @@ FlowDownAssociationPreinstallDone:
   ; Register only what the user selected on the installer page.
   ; magnet.ico and torrent.ico are installed to $INSTDIR via bundle.resources.
   ${If} $FlowDownAssociateTorrent == ${BST_CHECKED}
-    WriteRegStr HKLM "Software\Classes\.torrent" "" "FlowDown.Torrent"
-    WriteRegStr HKLM "Software\Classes\.torrent\OpenWithProgids" "FlowDown.Torrent" ""
-    WriteRegStr HKLM "Software\Classes\FlowDown.Torrent" "" "BitTorrent File"
-    WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$INSTDIR\torrent.ico"
-    WriteRegStr HKLM "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
+    WriteRegStr SHCTX "Software\Classes\.torrent" "" "FlowDown.Torrent"
+    WriteRegStr SHCTX "Software\Classes\.torrent\OpenWithProgids" "FlowDown.Torrent" ""
+    WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent" "" "BitTorrent File"
+    WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent\DefaultIcon" "" "$INSTDIR\torrent.ico"
+    WriteRegStr SHCTX "Software\Classes\FlowDown.Torrent\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
 
-    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe" "FriendlyAppName" "FlowDown"
-    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe\DefaultIcon" "" "$INSTDIR\torrent.ico"
-    WriteRegStr HKLM "Software\Classes\Applications\flowdown.exe\SupportedTypes" ".torrent" ""
+    WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe" "FriendlyAppName" "FlowDown"
+    WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe\DefaultIcon" "" "$INSTDIR\torrent.ico"
+    WriteRegStr SHCTX "Software\Classes\Applications\flowdown.exe\SupportedTypes" ".torrent" ""
   ${EndIf}
 
   ${If} $FlowDownAssociateMagnet == ${BST_CHECKED}
-    WriteRegStr HKLM "Software\Classes\magnet" "" "URL:Magnet Protocol"
-    WriteRegStr HKLM "Software\Classes\magnet" "URL Protocol" ""
-    WriteRegStr HKLM "Software\Classes\magnet\DefaultIcon" "" "$INSTDIR\magnet.ico"
-    WriteRegStr HKLM "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
+    WriteRegStr SHCTX "Software\Classes\magnet" "" "URL:Magnet Protocol"
+    WriteRegStr SHCTX "Software\Classes\magnet" "URL Protocol" ""
+    WriteRegStr SHCTX "Software\Classes\magnet\DefaultIcon" "" "$INSTDIR\magnet.ico"
+    WriteRegStr SHCTX "Software\Classes\magnet\shell\open\command" "" '"$INSTDIR\flowdown.exe" "%1"'
   ${EndIf}
 
   System::Call 'shell32::SHChangeNotify(i, i, i, i) (0x08000000, 0, 0, 0)'
@@ -105,20 +104,20 @@ FlowDownAssociationPreinstallDone:
 
 !macro NSIS_HOOK_PREUNINSTALL
   ; Remove only registrations that point to this FlowDown installation.
-  ReadRegStr $0 HKLM "Software\Classes\.torrent" ""
+  ReadRegStr $0 SHCTX "Software\Classes\.torrent" ""
   ${If} $0 == "FlowDown.Torrent"
-    DeleteRegKey HKLM "Software\Classes\FlowDown.Torrent"
-    DeleteRegKey HKLM "Software\Classes\.torrent"
+    DeleteRegKey SHCTX "Software\Classes\FlowDown.Torrent"
+    DeleteRegKey SHCTX "Software\Classes\.torrent"
   ${EndIf}
 
-  ReadRegStr $0 HKLM "Software\Classes\magnet\shell\open\command" ""
+  ReadRegStr $0 SHCTX "Software\Classes\magnet\shell\open\command" ""
   ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
-    DeleteRegKey HKLM "Software\Classes\magnet"
+    DeleteRegKey SHCTX "Software\Classes\magnet"
   ${EndIf}
 
-  ReadRegStr $0 HKLM "Software\Classes\Applications\flowdown.exe\shell\open\command" ""
+  ReadRegStr $0 SHCTX "Software\Classes\Applications\flowdown.exe\shell\open\command" ""
   ${If} $0 == '"$INSTDIR\flowdown.exe" "%1"'
-    DeleteRegKey HKLM "Software\Classes\Applications\flowdown.exe"
+    DeleteRegKey SHCTX "Software\Classes\Applications\flowdown.exe"
   ${EndIf}
 
   ; Remove dedicated icon files.
