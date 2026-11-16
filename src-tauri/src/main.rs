@@ -26,6 +26,7 @@ mod rpc;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, RwLock};
@@ -653,6 +654,32 @@ fn open_item(path: String) -> Result<bool, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            #[cfg(target_os = "windows")]
+            {
+                #[link(name = "shell32")]
+                extern "system" {
+                    fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
+                }
+
+                let wide_id: Vec<u16> = "com.flowdown.desktop"
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+
+                unsafe {
+                    let _ = SetCurrentProcessExplicitAppUserModelID(wide_id.as_ptr());
+                }
+            }
+
+            if let Some(win) = app.get_webview_window("main") {
+                if let Some(icon) = app.default_window_icon() {
+                    let _ = win.set_icon(icon.clone());
+                }
+            }
+
+            Ok(())
+        })
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                 let win = webview.window().clone();

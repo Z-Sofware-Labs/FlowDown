@@ -31,6 +31,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Z Software Labs",
+    "copyright": "Copyright © 2026 Z Software Labs",
     "createUpdaterArtifacts": "v1Compatible",
     "targets": "all",
     "icon": [

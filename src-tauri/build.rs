@@ -1,6 +1,8 @@
 fn main() {
     let mut windows = tauri_build::WindowsAttributes::new();
-    windows = windows.app_manifest(r#"
+    windows = windows
+        .window_icon_path("icons/icon.ico")
+        .app_manifest(r#"
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <dependency>
     <dependentAssembly>
