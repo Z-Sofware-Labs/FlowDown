@@ -3,7 +3,7 @@
   "productName": "FlowDown",
   "mainBinaryName": "flowdown",
   "version": "2.0.0",
-  "identifier": "com.zsoftwarelabs.flowdown",
+  "identifier": "com.flowdown.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -31,6 +31,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": "v1Compatible",
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -59,6 +60,14 @@
       "nsis": {
         "installerHooks": "windows/hooks.nsi"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM1OTRCQTAzODFCOTcxMkIKUldRcmNibUJBN3FVTlZTSzdYSDhBV0RNaVk3UEFFWGF0YjBxSFRuYURJR0NmQmRTU2M4K2JaUUoK",
+      "endpoints": [
+        "https://github.com/Z-Sofware-Labs/FlowDown/releases/latest/download/latest.json"
+      ]
     }
   }
 }
