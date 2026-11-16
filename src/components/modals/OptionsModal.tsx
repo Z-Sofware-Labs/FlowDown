@@ -164,6 +164,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateStatusText, setUpdateStatusText] = useState<string | null>(null);
   const [updateReleaseUrl, setUpdateReleaseUrl] = useState<string | null>(null);
+  const [updateDownloadProgress, setUpdateDownloadProgress] = useState<number | null>(null);
 
   // Sync live config when modal opens
   useEffect(() => {
@@ -212,16 +213,37 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
     setIsCheckingUpdate(true);
     setUpdateStatusText('Checking for updates...');
     setUpdateReleaseUrl(null);
+    setUpdateDownloadProgress(null);
     try {
       const res = await apiClient.checkForUpdates();
       if (res?.hasUpdate) {
-        setUpdateStatusText(`⚡ New release available: v${res.latestVersion}`);
-        setUpdateReleaseUrl(res.releaseUrl || 'https://github.com/Z-Sofware-Labs/FlowDown/releases');
+        const assets = res.assets || [];
+        const winAsset =
+          assets.find((a) => a.name.toLowerCase().endsWith('-setup.exe') || a.name.toLowerCase().endsWith('setup.exe')) ||
+          assets.find((a) => a.name.toLowerCase().endsWith('.exe')) ||
+          assets.find((a) => a.name.toLowerCase().endsWith('.msi')) ||
+          assets[0];
+
+        if (winAsset) {
+          setUpdateStatusText(`Downloading v${res.latestVersion}... 0%`);
+          setUpdateDownloadProgress(0);
+          await apiClient.downloadAndApplyUpdate(winAsset.downloadUrl, winAsset.name, (p) => {
+            setUpdateDownloadProgress(p.percentage);
+            setUpdateStatusText(`Downloading v${res.latestVersion}... ${p.percentage}%`);
+          });
+          setUpdateDownloadProgress(100);
+          setUpdateStatusText('Requesting administrator privileges...');
+        } else {
+          setUpdateStatusText(`⚡ New release available: v${res.latestVersion}`);
+          setUpdateReleaseUrl(res.releaseUrl || 'https://github.com/Z-Sofware-Labs/FlowDown/releases');
+        }
       } else {
         setUpdateStatusText(`✓ Up to date (v${res?.currentVersion || '2.0.1'} Stable)`);
       }
-    } catch {
-      setUpdateStatusText('✓ FlowDown is up to date (v2.0.1 Stable).');
+    } catch (err: any) {
+      setUpdateStatusText(
+        err?.message ? `Update error: ${err.message}` : '✓ FlowDown is up to date (v2.0.1 Stable).'
+      );
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -1465,6 +1487,15 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                           </div>
                         )}
                       </div>
+
+                      {updateDownloadProgress !== null && updateDownloadProgress < 100 && (
+                        <div className="w-full bg-[var(--os-bg-content)] h-1.5 rounded-full overflow-hidden border border-[var(--os-border)]">
+                          <div
+                            className="bg-[var(--os-accent)] h-full transition-all duration-150 rounded-full"
+                            style={{ width: `${Math.min(100, Math.max(0, updateDownloadProgress))}%` }}
+                          />
+                        </div>
+                      )}
 
                       <div className="text-[10px] text-[var(--os-text-muted)] pt-1 border-t border-[var(--os-border-subtle)] flex items-center justify-end">
                         <span className="font-mono opacity-80">Z-Software-Labs/FlowDown</span>

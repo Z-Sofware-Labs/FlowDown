@@ -358,6 +358,39 @@ export const apiClient = {
     };
   },
 
+  // 6b. Download and automatically execute the update installer with elevation
+  async downloadAndApplyUpdate(
+    downloadUrl: string,
+    fileName: string,
+    onProgress?: (data: { downloaded: number; total: number; percentage: number }) => void
+  ): Promise<boolean> {
+    try {
+      const winAny = typeof window !== 'undefined' ? (window as any) : null;
+      if (winAny && ('__TAURI_INTERNALS__' in winAny || '__TAURI__' in winAny)) {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const { listen } = await import('@tauri-apps/api/event');
+        let unlisten: (() => void) | null = null;
+        if (onProgress) {
+          unlisten = await listen<{ downloaded: number; total: number; percentage: number }>(
+            'update-download-progress',
+            (event) => onProgress(event.payload)
+          );
+        }
+        try {
+          return await invoke<boolean>('download_and_launch_update', { downloadUrl, fileName });
+        } finally {
+          if (unlisten) unlisten();
+        }
+      }
+    } catch (err: any) {
+      const msg = typeof err === 'string' ? err : err?.message || 'Failed to download and launch update installer';
+      throw new Error(msg);
+    }
+    // Web fallback
+    window.open(downloadUrl, '_blank');
+    return true;
+  },
+
   // 7. Probe remote HTTP URL for byte ranges and direct speed potential
   async probeHttpUrl(url: string, userAgent?: string): Promise<ProbeResponse | null> {
     const rpcRes = await callRpc<any>('http.probe', { url });

@@ -26,7 +26,7 @@ mod rpc;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, RwLock};
@@ -599,6 +599,133 @@ fn open_item(path: String) -> Result<bool, String> {
     }
 }
 
+#[tauri::command]
+async fn download_and_launch_update(
+    app: tauri::AppHandle,
+    download_url: String,
+    file_name: String,
+) -> Result<bool, String> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    let temp_dir = std::env::temp_dir();
+    let target_path = temp_dir.join(&file_name);
+
+    let client = reqwest::Client::builder()
+        .user_agent("FlowDown-Updater/2.0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Download request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Download failed with HTTP status {}", resp.status()));
+    }
+
+    let total_size = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut file = tokio::fs::File::create(&target_path)
+        .await
+        .map_err(|e| format!("Failed to create temporary file: {}", e))?;
+
+    let mut stream = resp.bytes_stream();
+
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| format!("Download stream error: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Failed writing update file: {}", e))?;
+        downloaded += chunk.len() as u64;
+
+        let percent = if total_size > 0 {
+            (downloaded as f64 / total_size as f64 * 100.0).round() as u32
+        } else {
+            0
+        };
+
+        let _ = app.emit("update-download-progress", serde_json::json!({
+            "downloaded": downloaded,
+            "total": total_size,
+            "percentage": percent,
+        }));
+    }
+
+    file.flush().await.map_err(|e| e.to_string())?;
+    drop(file);
+
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "shell32")]
+        extern "system" {
+            fn ShellExecuteW(
+                hwnd: *mut std::ffi::c_void,
+                lpOperation: *const u16,
+                lpFile: *const u16,
+                lpParameters: *const u16,
+                lpDirectory: *const u16,
+                nShowCmd: i32,
+            ) -> isize;
+        }
+
+        let verb: Vec<u16> = "runas"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let target_str = target_path.to_string_lossy();
+        let file_path: Vec<u16> = target_str
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let args: Vec<u16> = "/P /UPDATE /R"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let res = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                verb.as_ptr(),
+                file_path.as_ptr(),
+                args.as_ptr(),
+                std::ptr::null(),
+                1, // SW_SHOWNORMAL
+            )
+        };
+
+        if res <= 32 {
+            return Err(format!("Administrator privileges were not granted (error code: {}). Update aborted.", res));
+        }
+
+        // Delay slightly and terminate process so the elevated NSIS installer can replace files and restart FlowDown
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            std::process::exit(0);
+        });
+
+        Ok(true)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(&target_path)
+            .spawn();
+        Ok(true)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&target_path)
+            .spawn();
+        Ok(true)
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -645,7 +772,8 @@ fn main() {
             get_startup_open_payload,
             register_file_associations,
             call_daemon_rpc,
-            open_item
+            open_item,
+            download_and_launch_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

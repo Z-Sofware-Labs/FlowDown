@@ -21,6 +21,7 @@ import { DiagnosticModal } from './components/modals/DiagnosticModal';
 import { AnalyzerModal } from './components/modals/AnalyzerModal';
 import { TorrentCreatorModal } from './components/modals/TorrentCreatorModal';
 import { AboutModal } from './components/modals/AboutModal';
+import { UpdateModal } from './components/modals/UpdateModal';
 import { DownloadInfoModal } from './components/modals/DownloadInfoModal';
 import { RenameTransferModal } from './components/modals/RenameTransferModal';
 import { SubwindowHeader } from './components/modals/SubwindowHeader';
@@ -129,6 +130,7 @@ export default function App() {
   const [analyzerInitialTab, setAnalyzerInitialTab] = useState<'p2p' | 'http'>('p2p');
   const [isTorrentCreatorOpen, setIsTorrentCreatorOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [downloadInfoTorrentId, setDownloadInfoTorrentId] = useState<string | null>(null);
   const [renameTorrentId, setRenameTorrentId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ title: string; detail: string } | null>(null);
@@ -810,7 +812,7 @@ export default function App() {
             onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
             onOpenAnalyzer={(tab) => handleOpenAnalyzer(tab)}
             onOpenAbout={() => setIsAboutOpen(true)}
-            onCheckUpdates={() => setIsLibqrbitSettingsOpen(true)}
+            onCheckUpdates={() => setIsUpdateModalOpen(true)}
             onPauseAll={() => torrentEngine.pauseAll()}
             onResumeAll={() => torrentEngine.resumeAll()}
             onOpenDownloadInfo={() => {
@@ -1133,6 +1135,12 @@ export default function App() {
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
+      />
+
+      <UpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        osStyle={osStyle}
       />
 
       <DownloadInfoModal
