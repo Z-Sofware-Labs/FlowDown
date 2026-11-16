@@ -210,7 +210,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
 
   const handleCheckUpdates = async () => {
     setIsCheckingUpdate(true);
-    setUpdateStatusText('Checking GitHub Releases on-demand...');
+    setUpdateStatusText('Checking for updates...');
     setUpdateReleaseUrl(null);
     try {
       const res = await apiClient.checkForUpdates();
@@ -1466,9 +1466,8 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
                         )}
                       </div>
 
-                      <div className="text-[10px] text-[var(--os-text-muted)] pt-1 border-t border-[var(--os-border-subtle)] flex items-center justify-between">
-                        <span>On-demand only · No background Windows service</span>
-                        <span className="font-mono opacity-80">Z-Sofware-Labs/FlowDown</span>
+                      <div className="text-[10px] text-[var(--os-text-muted)] pt-1 border-t border-[var(--os-border-subtle)] flex items-center justify-end">
+                        <span className="font-mono opacity-80">Z-Software-Labs/FlowDown</span>
                       </div>
                     </div>
                   )}

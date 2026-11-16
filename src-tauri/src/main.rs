@@ -528,7 +528,7 @@ fn register_file_associations(torrents: bool, magnets: bool) -> serde_json::Valu
     })
 }
 
-/// Direct Tauri IPC -> Rust Daemon JSON-RPC bridge (uses embedded Rust engine or TCP 127.0.0.1:52840).
+/// Direct Tauri IPC -> Rust Daemon JSON-RPC bridge (uses embedded in-process Rust engine).
 #[tauri::command]
 async fn call_daemon_rpc(
     method: String,
@@ -541,62 +541,10 @@ async fn call_daemon_rpc(
         "params": params.unwrap_or(serde_json::Value::Null)
     });
 
-    // If our embedded in-process dispatcher is already active, dispatch in-memory with zero socket latency
-    if let Some(disp) = EMBEDDED_DISPATCHER.get() {
-        let raw_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
-        let raw_resp = disp.dispatch(&raw_req).await;
-        let parsed: serde_json::Value = serde_json::from_str(&raw_resp).map_err(|e| e.to_string())?;
-        if let Some(err) = parsed.get("error").filter(|v| !v.is_null()) {
-            return Err(err.to_string());
-        }
-        return Ok(parsed
-            .get("result")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null));
-    }
-
-    let mut payload = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
-    payload.push(b'\n');
-
-    let stream = match tokio::time::timeout(
-        std::time::Duration::from_millis(450),
-        TcpStream::connect("127.0.0.1:52840"),
-    )
-    .await
-    {
-        Ok(Ok(s)) => s,
-        _ => {
-            // Automatically boot embedded in-process Rust daemon so standalone Tauri binary always works
-            let disp = get_or_init_embedded_dispatcher().await;
-            let raw_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
-            let raw_resp = disp.dispatch(&raw_req).await;
-            let parsed: serde_json::Value =
-                serde_json::from_str(&raw_resp).map_err(|e| e.to_string())?;
-            if let Some(err) = parsed.get("error").filter(|v| !v.is_null()) {
-                return Err(err.to_string());
-            }
-            return Ok(parsed
-                .get("result")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null));
-        }
-    };
-
-    let _ = stream.set_nodelay(true);
-    let (reader, mut writer) = stream.into_split();
-    writer
-        .write_all(&payload)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut lines = BufReader::new(reader).lines();
-    let line = tokio::time::timeout(std::time::Duration::from_millis(15000), lines.next_line())
-        .await
-        .map_err(|_| "Daemon read timeout".to_string())?
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Empty response from daemon".to_string())?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    let disp = get_or_init_embedded_dispatcher().await;
+    let raw_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
+    let raw_resp = disp.dispatch(&raw_req).await;
+    let parsed: serde_json::Value = serde_json::from_str(&raw_resp).map_err(|e| e.to_string())?;
     if let Some(err) = parsed.get("error").filter(|v| !v.is_null()) {
         return Err(err.to_string());
     }
@@ -678,15 +626,15 @@ fn main() {
                 }
             }
 
+            tauri::async_runtime::spawn(async {
+                let _ = get_or_init_embedded_dispatcher().await;
+            });
+
             Ok(())
         })
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
-                let win = webview.window().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(250));
-                    let _ = win.show();
-                });
+                let _ = webview.window().show();
             }
         })
         .invoke_handler(tauri::generate_handler![

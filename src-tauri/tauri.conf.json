@@ -22,7 +22,7 @@
         "transparent": false,
         "backgroundColor": "#202020",
         "theme": "Dark",
-        "visible": false
+        "visible": true
       }
     ],
     "security": {
