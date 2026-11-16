@@ -193,17 +193,33 @@ export default function App() {
       return;
     }
 
-    const fileCount = tor.files?.length ?? (tor.isHttpSegmented ? 1 : 0);
-    const isMulti = fileCount > 1;
+    const sep = tor.savePath.includes('\\') ? '\\' : '/';
+    const normalize = (p: string) => p.replace(/[/\\]+$/, '');
+    const normalizedSave = normalize(tor.savePath);
 
-    if (isMulti) {
-      // Multi-file: open directory
-      await handleOpenFolder(id);
+    // Detect if this is a nested torrent (multi-file torrent or files in subdirectories)
+    const isMultiFile = Boolean(tor.files && tor.files.length > 1);
+    const hasNestedPath = Boolean(
+      tor.files && tor.files.length === 1 && (tor.files[0].path.includes('/') || tor.files[0].path.includes('\\'))
+    );
+    const isNestedTorrent = !tor.isHttpSegmented && (isMultiFile || hasNestedPath);
+
+    if (isNestedTorrent) {
+      // Nested torrent: open that directory directly using the default OS file manager
+      const endsWithName = normalizedSave.toLowerCase().endsWith(tor.name.toLowerCase());
+      const nestedDir = endsWithName ? normalizedSave : `${normalizedSave}${sep}${tor.name}`;
+
+      const opened = await apiClient.openItem(nestedDir);
+      if (opened) {
+        torrentEngine.addLog('INFO', `Opened directory "${nestedDir}" [OS File Manager].`);
+        showToast('Opened Directory', `${tor.name}`);
+      } else {
+        await handleOpenFolder(id);
+      }
     } else {
-      // Single file: open file directly with default OS application
-      const sep = tor.savePath.includes('\\') ? '\\' : '/';
+      // Single file download: open file directly with default OS application
       const singleFileName = tor.files && tor.files.length === 1 ? tor.files[0].path : tor.name;
-      const targetFilePath = `${tor.savePath.replace(/[/\\]+$/, '')}${sep}${singleFileName}`;
+      const targetFilePath = `${normalizedSave}${sep}${singleFileName}`;
 
       const opened = await apiClient.openItem(targetFilePath);
       if (!opened) {

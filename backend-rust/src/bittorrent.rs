@@ -94,7 +94,7 @@ pub async fn announce_trackers(
 ) -> TrackerAnnounceReport {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(2400))
-        .user_agent("FlowDown/2.0.4")
+        .user_agent("FlowDown/2.0.5")
         .build()
         .unwrap_or_default();
 
@@ -1032,7 +1032,7 @@ async fn send_extended_handshake(stream: &mut PeerStream) -> Result<(), String> 
     m.insert(b"ut_metadata".to_vec(), BencodeValue::Int(1));
     let mut root = BTreeMap::new();
     root.insert(b"m".to_vec(), BencodeValue::Dict(m));
-    root.insert(b"v".to_vec(), BencodeValue::Bytes(b"FlowDown 2.0.4".to_vec()));
+    root.insert(b"v".to_vec(), BencodeValue::Bytes(b"FlowDown 2.0.5".to_vec()));
     let enc = BencodeValue::Dict(root).encode();
     let mut payload = Vec::with_capacity(1 + enc.len());
     payload.push(0); // extended msg id 0 = handshake

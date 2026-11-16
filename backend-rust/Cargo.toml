@@ -1,6 +1,6 @@
 [package]
 name = "qrbitd"
-version = "2.0.4"
+version = "2.0.5"
 edition = "2021"
 authors = ["Z Software Labs"]
 description = "High-performance headless BitTorrent and multi-segment HTTP download daemon with libqrbit anti-throttling"
