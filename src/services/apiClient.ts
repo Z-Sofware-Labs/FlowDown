@@ -122,7 +122,38 @@ export interface OptimalSegmentsResponse {
   reason: string;
 }
 
+// JSON-RPC 2.0 Client (Direct Tauri IPC to Rust Daemon with HTTP Bridge Fallback)
+export async function callRpc<T = any>(method: string, params?: Record<string, unknown>): Promise<T | null> {
+  try {
+    const winAny = typeof window !== 'undefined' ? (window as any) : null;
+    if (winAny && ('__TAURI_INTERNALS__' in winAny || '__TAURI__' in winAny)) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const directRes = await invoke<T>('call_daemon_rpc', { method, params: params ?? null });
+      if (directRes !== undefined && directRes !== null) {
+        return directRes;
+      }
+    }
+  } catch {
+    // Fall back to /api/rpc HTTP bridge if Tauri direct socket isn't ready
+  }
+
+  try {
+    const res = await fetch('/api/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.error) return null;
+    return (data.result ?? null) as T | null;
+  } catch {
+    return null;
+  }
+}
+
 export const apiClient = {
+  callRpc,
   // 1. Fetch persistent settings from backend
   async getSettings(): Promise<{
     httpSettings?: Partial<HttpSettings>;
@@ -213,7 +244,7 @@ export const apiClient = {
       // Fall through to RPC / HTTP
     }
 
-    const rpcRes = await this.callRpc<{ success: boolean }>('system.fs.openItem', { path: targetPath });
+    const rpcRes = await callRpc<{ success: boolean }>('system.fs.openItem', { path: targetPath });
     if (rpcRes?.success) return true;
 
     try {
@@ -241,7 +272,7 @@ export const apiClient = {
       // Fall back to RPC / HTTP below
     }
 
-    const rpcRes = await this.callRpc<AssociationResponse>('system.associations.register', { torrents, magnets });
+    const rpcRes = await callRpc<AssociationResponse>('system.associations.register', { torrents, magnets });
     if (rpcRes?.success) {
       return rpcRes;
     }
@@ -329,7 +360,7 @@ export const apiClient = {
 
   // 7. Probe remote HTTP URL for byte ranges and direct speed potential
   async probeHttpUrl(url: string, userAgent?: string): Promise<ProbeResponse | null> {
-    const rpcRes = await this.callRpc<any>('http.probe', { url });
+    const rpcRes = await callRpc<any>('http.probe', { url });
     if (rpcRes && (rpcRes.content_length !== undefined || rpcRes.file_name)) {
       return {
         success: true,
@@ -361,7 +392,7 @@ export const apiClient = {
   async probeOptimalSegments(url?: string): Promise<OptimalSegmentsResponse | null> {
     try {
       // 1. Primary: Direct RPC to Rust daemon HTTP downloader probe
-      const rpcRes = await this.callRpc<any>('http.probeOptimalSegments', { url: url || '' });
+      const rpcRes = await callRpc<any>('http.probeOptimalSegments', { url: url || '' });
       if (rpcRes && typeof rpcRes.optimal_segments === 'number') {
         return {
           success: Boolean(rpcRes.success),
@@ -452,7 +483,7 @@ export const apiClient = {
     contentBase64?: string,
     filePath?: string
   ): Promise<TorrentProbeResponse | null> {
-    const rpcRes = await this.callRpc<any>('torrents.probe', {
+    const rpcRes = await callRpc<any>('torrents.probe', {
       magnet,
       name,
       content_base64: contentBase64,
@@ -489,7 +520,7 @@ export const apiClient = {
 
   // 7c. Resolve Magnet URI / BTIH info hash via backend
   async resolveMagnet(input: string): Promise<MagnetResolveResponse | null> {
-    const rpcRes = await this.callRpc<any>('magnet.resolve', { input, announce: true });
+    const rpcRes = await callRpc<any>('magnet.resolve', { input, announce: true });
     if (rpcRes && rpcRes.valid !== undefined) {
       return {
         success: Boolean(rpcRes.valid),
@@ -556,36 +587,6 @@ export const apiClient = {
     }
   },
 
-  // 9. JSON-RPC 2.0 Client (Direct Tauri IPC to Rust Daemon with HTTP Bridge Fallback)
-  async callRpc<T = any>(method: string, params?: Record<string, unknown>): Promise<T | null> {
-    try {
-      const winAny = typeof window !== 'undefined' ? (window as any) : null;
-      if (winAny && ('__TAURI_INTERNALS__' in winAny || '__TAURI__' in winAny)) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const directRes = await invoke<T>('call_daemon_rpc', { method, params: params ?? null });
-        if (directRes !== undefined && directRes !== null) {
-          return directRes;
-        }
-      }
-    } catch {
-      // Fall back to /api/rpc HTTP bridge if Tauri direct socket isn't ready
-    }
-
-    try {
-      const res = await fetch('/api/rpc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data.error) return null;
-      return (data.result ?? null) as T | null;
-    } catch {
-      return null;
-    }
-  },
-
   async syncSnapshotRpc(): Promise<{
     transfers?: any[];
     stats?: {
@@ -601,7 +602,7 @@ export const apiClient = {
     };
     logs?: string[];
   } | null> {
-    return this.callRpc('core.syncSnapshot');
+    return callRpc('core.syncSnapshot');
   },
 
   async checkDaemonStatus(): Promise<{
@@ -610,7 +611,7 @@ export const apiClient = {
     version: string;
     rustConnected: boolean;
   } | null> {
-    const res = await this.callRpc<{ daemon?: string; app?: string; version?: string }>('core.getVersion');
+    const res = await callRpc<{ daemon?: string; app?: string; version?: string }>('core.getVersion');
     if (!res) return null;
     return {
       daemon: res.daemon || 'node-preview',
@@ -621,7 +622,7 @@ export const apiClient = {
   },
 
   async listTransfersRpc(): Promise<any[] | null> {
-    return this.callRpc<any[]>('torrents.list');
+    return callRpc<any[]>('torrents.list');
   },
 
   async getSessionStatsRpc(): Promise<{
@@ -635,16 +636,16 @@ export const apiClient = {
     stealth_port: number;
     alt_speed_active: boolean;
   } | null> {
-    return this.callRpc('core.getSessionStats');
+    return callRpc('core.getSessionStats');
   },
 
   async resetSessionStatsRpc(): Promise<boolean> {
-    const res = await this.callRpc<{ success?: boolean }>('core.resetSessionStats');
+    const res = await callRpc<{ success?: boolean }>('core.resetSessionStats');
     return !!res?.success;
   },
 
   async getLogsRpc(): Promise<string[] | null> {
-    return this.callRpc<string[]>('core.getLogs');
+    return callRpc<string[]>('core.getLogs');
   },
 
   async addHttpRpc(params: {
@@ -658,7 +659,7 @@ export const apiClient = {
     obfuscation_level: number;
     save_path: string;
   }) {
-    return this.callRpc('torrents.addHttp', params);
+    return callRpc('torrents.addHttp', params);
   },
 
   async addMagnetRpc(params: {
@@ -671,7 +672,7 @@ export const apiClient = {
     obfuscation_level: number;
     save_path: string;
   }) {
-    return this.callRpc('torrents.addMagnet', params);
+    return callRpc('torrents.addMagnet', params);
   },
 
   async addTorrentFileRpc(params: {
@@ -683,7 +684,7 @@ export const apiClient = {
     obfuscation_level: number;
     save_path: string;
   }) {
-    return this.callRpc('torrents.addFile', params);
+    return callRpc('torrents.addFile', params);
   },
 
   async createTorrentRpc(params: {
@@ -694,7 +695,7 @@ export const apiClient = {
     comment?: string;
     private?: boolean;
   }) {
-    return this.callRpc<{
+    return callRpc<{
       info_hash?: string;
       name?: string;
       total_size?: number;
@@ -705,7 +706,7 @@ export const apiClient = {
   },
 
   async analyzeEvasionRpc() {
-    return this.callRpc<{
+    return callRpc<{
       recommended_profile?: string;
       udp_ephemeral_ok?: boolean;
       udp_bound_port?: number;
@@ -728,67 +729,67 @@ export const apiClient = {
   },
 
   async pauseTransferRpc(id: string) {
-    return this.callRpc('torrents.pause', { id });
+    return callRpc('torrents.pause', { id });
   },
 
   async stopTransferRpc(id: string) {
-    return this.callRpc('torrents.stop', { id });
+    return callRpc('torrents.stop', { id });
   },
 
   async resumeTransferRpc(id: string) {
-    return this.callRpc('torrents.resume', { id });
+    return callRpc('torrents.resume', { id });
   },
 
   async deleteTransferRpc(id: string, delete_files = false) {
-    return this.callRpc('torrents.delete', { id, delete_files });
+    return callRpc('torrents.delete', { id, delete_files });
   },
 
   async renameTransferRpc(id: string, name: string) {
-    return this.callRpc('torrents.rename', { id, name });
+    return callRpc('torrents.rename', { id, name });
   },
 
   async recheckTransferRpc(id: string) {
-    return this.callRpc('torrents.recheck', { id });
+    return callRpc('torrents.recheck', { id });
   },
 
   async setPriorityRpc(id: string, priority: string) {
-    return this.callRpc('torrents.setPriority', { id, priority });
+    return callRpc('torrents.setPriority', { id, priority });
   },
 
   async setSpeedLimitRpc(id: string, limit_kbps: number | null) {
-    return this.callRpc('torrents.setSpeedLimit', { id, limit_kbps });
+    return callRpc('torrents.setSpeedLimit', { id, limit_kbps });
   },
 
   async setObfuscationRpc(id: string, obfuscation_level: number) {
-    return this.callRpc('torrents.setObfuscationLevel', { id, obfuscation_level });
+    return callRpc('torrents.setObfuscationLevel', { id, obfuscation_level });
   },
 
   async pauseAllRpc() {
-    return this.callRpc('torrents.pauseAll');
+    return callRpc('torrents.pauseAll');
   },
 
   async resumeAllRpc() {
-    return this.callRpc('torrents.resumeAll');
+    return callRpc('torrents.resumeAll');
   },
 
   async toggleTurtleRpc() {
-    return this.callRpc<{ limited?: boolean }>('bandwidth.toggleTurtle');
+    return callRpc<{ limited?: boolean }>('bandwidth.toggleTurtle');
   },
 
   async setTurtleRpc(active: boolean) {
-    return this.callRpc('bandwidth.setTurtle', { active });
+    return callRpc('bandwidth.setTurtle', { active });
   },
 
   async setStealthRpc(active: boolean) {
-    return this.callRpc('stealth.set', { active });
+    return callRpc('stealth.set', { active });
   },
 
   async randomizeStealthPortRpc() {
-    return this.callRpc<{ success?: boolean; port?: number }>('stealth.randomizePort');
+    return callRpc<{ success?: boolean; port?: number }>('stealth.randomizePort');
   },
 
   async setHttpSegmentsRpc(segmentsCount: number, id?: string) {
-    return this.callRpc<{ success: boolean; segments_count: number }>('torrents.setSegments', {
+    return callRpc<{ success: boolean; segments_count: number }>('torrents.setSegments', {
       segments_count: segmentsCount,
       id: id || undefined,
     });
