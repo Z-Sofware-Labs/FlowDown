@@ -13,7 +13,7 @@ type UpdateState = 'checking' | 'up-to-date' | 'downloading' | 'elevating' | 'er
 
 export const UpdateModal: React.FC<UpdateModalProps> = ({ isOpen, onClose, osStyle = 'windows' }) => {
   const [state, setState] = useState<UpdateState>('checking');
-  const [currentVersion, setCurrentVersion] = useState('2.0.3');
+  const [currentVersion, setCurrentVersion] = useState('2.0.4');
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ downloaded: number; total: number; percentage: number }>({
     downloaded: 0,
@@ -36,7 +36,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({ isOpen, onClose, osSty
         return;
       }
 
-      setCurrentVersion(res.currentVersion || '2.0.3');
+      setCurrentVersion(res.currentVersion || '2.0.4');
 
       if (!res.hasUpdate) {
         setState('up-to-date');
