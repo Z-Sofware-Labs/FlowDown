@@ -2,8 +2,233 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-html, body, #root {
-  background-color: #0b1120;
-  color: #f8fafc;
-  min-height: 100vh;
+/* ========================================================================== */
+/* STANDARD OPERATING SYSTEM PALETTES (Win32 / macOS Aqua / Linux KDE Breeze) */
+/* ========================================================================== */
+
+/* 1. Windows — Win32 System Palette (Light) */
+:root,
+[data-os="windows"] {
+  --os-bg-window: #f0f0f0;
+  --os-bg-titlebar: #ffffff;
+  --os-bg-menubar: #f0f0f0;
+  --os-bg-toolbar: #f5f5f5;
+  --os-bg-sidebar: #f0f0f0;
+  --os-bg-content: #ffffff;
+  --os-bg-alt: #f7f7f7;
+  --os-bg-header: #f0f0f0;
+  --os-bg-statusbar: #f0f0f0;
+  --os-bg-control: #ffffff;
+  --os-bg-hover: #e5f1fb;
+  --os-bg-selected-soft: #cce8ff;
+  --os-text-selected-soft: #004578;
+  --os-border: #cccccc;
+  --os-border-subtle: #e5e5e5;
+  --os-text: #111111;
+  --os-text-muted: #595959;
+  --os-accent: #0078d7;
+  --os-accent-hover: #0067c0;
+  --os-selected-row-bg: #0078d7;
+  --os-marquee-bg: rgba(0, 120, 215, 0.16);
+  --os-wallpaper: linear-gradient(135deg, #e2eaf2 0%, #d4e0ec 100%);
+  --os-scrollbar-track: #f0f0f0;
+  --os-scrollbar-thumb: #c1c1c1;
+  --os-scrollbar-thumb-hover: #9e9e9e;
+}
+
+/* Windows — Win32 Dark Palette */
+.dark[data-os="windows"],
+[data-os="windows"] .dark {
+  --os-bg-window: #202020;
+  --os-bg-titlebar: #1f1f1f;
+  --os-bg-menubar: #202020;
+  --os-bg-toolbar: #272727;
+  --os-bg-sidebar: #1e1e1e;
+  --os-bg-content: #191919;
+  --os-bg-alt: #1f1f1f;
+  --os-bg-header: #252525;
+  --os-bg-statusbar: #1f1f1f;
+  --os-bg-control: #2d2d2d;
+  --os-bg-hover: #2d3844;
+  --os-bg-selected-soft: #004578;
+  --os-text-selected-soft: #ffffff;
+  --os-border: #3d3d3d;
+  --os-border-subtle: #2b2b2b;
+  --os-text: #f3f3f3;
+  --os-text-muted: #a6a6a6;
+  --os-accent: #0078d4;
+  --os-accent-hover: #1a86d9;
+  --os-selected-row-bg: #005a9e;
+  --os-marquee-bg: rgba(0, 120, 212, 0.22);
+  --os-wallpaper: linear-gradient(135deg, #161616 0%, #0d0d0d 100%);
+  --os-scrollbar-track: #1c1c1c;
+  --os-scrollbar-thumb: #454545;
+  --os-scrollbar-thumb-hover: #5c5c5c;
+}
+
+/* 2. macOS — Apple Aqua System Palette (Light) */
+[data-os="macos"] {
+  --os-bg-window: #ececec;
+  --os-bg-titlebar: #eaeaea;
+  --os-bg-menubar: #f2f2f2;
+  --os-bg-toolbar: #f5f5f5;
+  --os-bg-sidebar: #eaecee;
+  --os-bg-content: #ffffff;
+  --os-bg-alt: #f5f5f7;
+  --os-bg-header: #f2f2f4;
+  --os-bg-statusbar: #ececec;
+  --os-bg-control: #ffffff;
+  --os-bg-hover: #e5f0ff;
+  --os-bg-selected-soft: #d9e8ff;
+  --os-text-selected-soft: #004099;
+  --os-border: #d1d1d6;
+  --os-border-subtle: #e5e5ea;
+  --os-text: #1d1d1f;
+  --os-text-muted: #6e6e73;
+  --os-accent: #007aff;
+  --os-accent-hover: #0063e1;
+  --os-selected-row-bg: #0063e1;
+  --os-marquee-bg: rgba(0, 122, 255, 0.16);
+  --os-wallpaper: linear-gradient(135deg, #dfe4ea 0%, #d2d9e2 100%);
+  --os-scrollbar-track: #f2f2f2;
+  --os-scrollbar-thumb: #c7c7cc;
+  --os-scrollbar-thumb-hover: #aeaeb2;
+}
+
+/* macOS — Apple Dark Aqua Palette */
+.dark[data-os="macos"],
+[data-os="macos"] .dark {
+  --os-bg-window: #262628;
+  --os-bg-titlebar: #2c2c2e;
+  --os-bg-menubar: #262628;
+  --os-bg-toolbar: #242426;
+  --os-bg-sidebar: #1f1f21;
+  --os-bg-content: #1c1c1e;
+  --os-bg-alt: #222224;
+  --os-bg-header: #262628;
+  --os-bg-statusbar: #242426;
+  --os-bg-control: #2c2c2e;
+  --os-bg-hover: #2c3542;
+  --os-bg-selected-soft: #14355e;
+  --os-text-selected-soft: #d6e7ff;
+  --os-border: #3a3a3c;
+  --os-border-subtle: #2c2c2e;
+  --os-text: #f5f5f7;
+  --os-text-muted: #98989d;
+  --os-accent: #0a84ff;
+  --os-accent-hover: #2b94ff;
+  --os-selected-row-bg: #0058d0;
+  --os-marquee-bg: rgba(10, 132, 255, 0.22);
+  --os-wallpaper: linear-gradient(135deg, #171719 0%, #0e0e10 100%);
+  --os-scrollbar-track: #1c1c1e;
+  --os-scrollbar-thumb: #48484a;
+  --os-scrollbar-thumb-hover: #636366;
+}
+
+/* 3. Linux — KDE Breeze Qt Palette (Light) */
+[data-os="linux"] {
+  --os-bg-window: #eff0f1;
+  --os-bg-titlebar: #dee0e2;
+  --os-bg-menubar: #eff0f1;
+  --os-bg-toolbar: #eff0f1;
+  --os-bg-sidebar: #eff0f1;
+  --os-bg-content: #fcfcfc;
+  --os-bg-alt: #f4f5f6;
+  --os-bg-header: #eff0f1;
+  --os-bg-statusbar: #eff0f1;
+  --os-bg-control: #fcfcfc;
+  --os-bg-hover: #d7eefb;
+  --os-bg-selected-soft: #c8e8f8;
+  --os-text-selected-soft: #1b5272;
+  --os-border: #bdc3c7;
+  --os-border-subtle: #dfe2e5;
+  --os-text: #232629;
+  --os-text-muted: #687077;
+  --os-accent: #3daee9;
+  --os-accent-hover: #2999d6;
+  --os-selected-row-bg: #3daee9;
+  --os-marquee-bg: rgba(61, 174, 233, 0.18);
+  --os-wallpaper: linear-gradient(135deg, #dde2e6 0%, #cfd6dc 100%);
+  --os-scrollbar-track: #eff0f1;
+  --os-scrollbar-thumb: #bdc3c7;
+  --os-scrollbar-thumb-hover: #95a0a6;
+}
+
+/* Linux — KDE Breeze Dark Palette */
+.dark[data-os="linux"],
+[data-os="linux"] .dark {
+  --os-bg-window: #2a2e32;
+  --os-bg-titlebar: #232629;
+  --os-bg-menubar: #2a2e32;
+  --os-bg-toolbar: #2a2e32;
+  --os-bg-sidebar: #232629;
+  --os-bg-content: #1b1e20;
+  --os-bg-alt: #202326;
+  --os-bg-header: #2a2e32;
+  --os-bg-statusbar: #232629;
+  --os-bg-control: #31363b;
+  --os-bg-hover: #273e4c;
+  --os-bg-selected-soft: #1c4257;
+  --os-text-selected-soft: #d9f0fc;
+  --os-border: #454b52;
+  --os-border-subtle: #2e3338;
+  --os-text: #eff0f1;
+  --os-text-muted: #a1a9b1;
+  --os-accent: #3daee9;
+  --os-accent-hover: #53b8ed;
+  --os-selected-row-bg: #2980b9;
+  --os-marquee-bg: rgba(61, 174, 233, 0.22);
+  --os-wallpaper: linear-gradient(135deg, #1b1e20 0%, #121416 100%);
+  --os-scrollbar-track: #1b1e20;
+  --os-scrollbar-thumb: #454b52;
+  --os-scrollbar-thumb-hover: #5c646d;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--os-text);
+  }
+
+  /* Monospace font for telemetry, metrics, hashes, IP addresses */
+  .font-mono, code, kbd, samp {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Native OS Scrollbars */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--os-scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--os-scrollbar-thumb);
+  border-radius: 3px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--os-scrollbar-thumb-hover);
+}
+
+/* Classic Qt sunken & raised borders */
+.qt-bevel-in {
+  box-shadow: inset 1px 1px 0px rgba(0, 0, 0, 0.35), inset -1px -1px 0px rgba(255, 255, 255, 0.05);
+}
+
+.qt-bevel-out {
+  box-shadow: inset 1px 1px 0px rgba(255, 255, 255, 0.08), inset -1px -1px 0px rgba(0, 0, 0, 0.35);
+}
+
+/* Native OS Table Selection Highlight */
+.qt-selected-row {
+  background: var(--os-selected-row-bg) !important;
+  color: #ffffff !important;
 }

@@ -1,13 +1,33 @@
+# Dependencies
 node_modules/
+package-lock.json
+
+# Build outputs
 build/
 dist/
 coverage/
-.DS_Store
 *.log
+.DS_Store
 .env*
 !.env.example
-.updater_key*
-*.key
-src-tauri/target/
+
+# Rust targets
 target/
-bun.lock*
+**/target/
+**/*.rs.bk
+
+# C++ / Qt build artifacts
+frontend-qt/build/
+frontend-qt/.qmake.stash
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Temporary / OS caches
+.aistudio/
+.cache/
+downloads/
+temp/
+data/transfers.json

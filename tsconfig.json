@@ -4,6 +4,7 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
+    "types": ["vite/client"],
     "lib": [
       "ES2022",
       "DOM",
@@ -23,6 +24,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "src-tauri"]
+  "exclude": ["dist", "src-tauri", "backend-rust", "node_modules"]
 }

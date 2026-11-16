@@ -1,0 +1,53 @@
+[package]
+name = "qrbitd"
+version = "0.1.0"
+edition = "2021"
+authors = ["qrBit Engineering Team"]
+description = "High-performance headless BitTorrent and multi-segment HTTP download daemon with libqrbit anti-throttling"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Async Runtime & Concurrency
+tokio = { version = "1.38", features = ["full", "sync", "time", "macros", "net", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+async-trait = "0.1"
+
+# Serialization & IPC Wire Format
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bytes = "1.6"
+
+# HTTP Multi-Segment Client & Network
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "json"] }
+hyper = { version = "1.4", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
+
+# libqrbit Anti-Throttling & Obfuscation
+rand = "0.8"
+ring = "0.17"
+
+# Local Inter-Process Communication (Unix Domain Sockets & Windows Named Pipes)
+interprocess = { version = "1.2", features = ["tokio"] }
+
+# System, Filesystem & Hardware Inspection
+sysinfo = "0.30"
+directories = "5.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging & Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+
+# Production BitTorrent Engine
+librqbit = "9.1.0"
+librqbit-core = "9.1.0"
+librqbit-dht = "9.1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"
+

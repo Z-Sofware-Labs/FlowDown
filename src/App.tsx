@@ -1,2039 +1,1220 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ArrowUpDown,
-  CheckSquare,
-  Copy,
-  Download,
-  FolderOpen,
-  Maximize2,
-  Pause,
-  Play,
-  Plus,
-  Search,
-  SlidersHorizontal,
-  Square,
-  Trash2,
-  X,
-} from 'lucide-react';
-import {
-  DownloadItem,
-  FileType,
-  GlobalSettings,
-  StealthConfig,
-  TorrentFile,
-} from './types';
-import { INITIAL_DOWNLOADS } from './data/mockDownloads';
-import {
-  getDefaultDirectoryList,
-  getDefaultDownloadsPath,
-  extractUrlFromDataTransfer,
-} from './utils/urlHelper';
-import { Header } from './components/Header';
-import { Sidebar } from './components/Sidebar';
-import { DownloadItemRow } from './components/DownloadItemRow';
-import { ToastContainer, ToastMessage } from './components/Toast';
-import { formatSpeed } from './utils/formatters';
-import {
-  createDownloadDirectory,
-  deleteIncompleteTransferNative,
-  downloadFileNative,
-  getTorrentProgressNative,
-  waitForTorrentReadyNative,
-  joinPathNative,
-  openDirectoryNative,
-  openPathNative,
-  resolveDownloadPath,
-  isTauriEnvironment,
-  startTorrentNative,
-  pauseTorrentNative,
-  pauseHttpDownloadNative,
-  resumeTorrentNative,
-  updateTorrentEngineConfigNative,
-} from './utils/tauri';
-import { checkForUpdate, AppUpdateInfo } from './utils/updater';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { logger } from './utils/logger';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { restoreStateCurrent, saveWindowState, StateFlags } from '@tauri-apps/plugin-window-state';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-const AddDownloadModal = React.lazy(() =>
-  import('./components/AddDownloadModal').then((m) => ({
-    default: m.AddDownloadModal,
-  }))
-);
-const DownloadDetailModal = React.lazy(() =>
-  import('./components/DownloadDetailModal').then((m) => ({
-    default: m.DownloadDetailModal,
-  }))
-);
-const SettingsModal = React.lazy(() =>
-  import('./components/SettingsModal').then((m) => ({
-    default: m.SettingsModal,
-  }))
-);
-const AboutModal = React.lazy(() =>
-  import('./components/AboutModal').then((m) => ({
-    default: m.AboutModal,
-  }))
-);
-const DirectoryPromptModal = React.lazy(() =>
-  import('./components/DirectoryPromptModal').then((m) => ({
-    default: m.DirectoryPromptModal,
-  }))
-);
-const UpdateModal = React.lazy(() =>
-  import('./components/UpdateModal').then((m) => ({
-    default: m.UpdateModal,
-  }))
-);
+import React, { useState, useEffect, useMemo } from 'react';
+import { torrentEngine } from './services/torrentEngine';
+import { TorrentItem, BandwidthLimits, LibqrbitConfig, SpeedHistoryPoint, LogEntry, Priority, HealthPriorityMode, ObfuscationLevel, OsStyle, SystemSettings } from './types';
+import { QtMenuBar } from './components/QtMenuBar';
+import { QtToolBar } from './components/QtToolBar';
+import { QtCategorySidebar } from './components/QtCategorySidebar';
+import { QtTransferTable } from './components/QtTransferTable';
+import { QtDetailTabs } from './components/QtDetailTabs';
+import { QtStatusBar } from './components/QtStatusBar';
 
-let startupLogWritten = false;
-
-type NewDownloadData = {
-  name: string;
-  url: string;
-  size: number;
-  fileType: FileType;
-  category: string;
-  savePath: string;
-  connections: number;
-  startImmediately: boolean;
-  isTorrent?: boolean;
-  engine?: 'librqbit' | 'http';
-  stealthConfig?: StealthConfig;
-  torrentFiles?: TorrentFile[];
-};
+import { AddTorrentModal, StartupTorrentPayload } from './components/modals/AddTorrentModal';
+import { AddUrlModal } from './components/modals/AddUrlModal';
+import { OptionsModal } from './components/modals/OptionsModal';
+import { BandwidthSchedulerModal } from './components/modals/BandwidthSchedulerModal';
+import { DiagnosticModal } from './components/modals/DiagnosticModal';
+import { AnalyzerModal } from './components/modals/AnalyzerModal';
+import { TorrentCreatorModal } from './components/modals/TorrentCreatorModal';
+import { AboutModal } from './components/modals/AboutModal';
+import { DownloadInfoModal } from './components/modals/DownloadInfoModal';
+import { RenameTransferModal } from './components/modals/RenameTransferModal';
+import { SubwindowHeader } from './components/modals/SubwindowHeader';
+import { detectHostOs, resolveOsDownloadDirectory } from './utils/detectOs';
+import { openOsDestinationFolder } from './utils/osFilePicker';
+import { apiClient } from './services/apiClient';
 
 export default function App() {
-  const [downloads, setDownloads] = useState<DownloadItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('flowdown_downloads_v2');
-      if (saved) return JSON.parse(saved) as DownloadItem[];
-    } catch {
-      // Ignore malformed persisted state.
-    }
-    return INITIAL_DOWNLOADS;
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [viewModePreference, setViewModePreference] = useState<'dark' | 'light' | 'system'>('dark');
+  const osStyle: OsStyle = useMemo(() => detectHostOs(), []);
+  const [isClosePromptOpen, setIsClosePromptOpen] = useState<boolean>(false);
+  const [showSidebar, setShowSidebar] = useState<boolean>(true);
+  const [showDetailTabs, setShowDetailTabs] = useState<boolean>(true);
+  const [showStatusBar, setShowStatusBar] = useState<boolean>(true);
+  const [systemSettingsState, setSystemSettingsState] = useState<Partial<SystemSettings>>({
+    compactDensity: false,
+    autoSubfolders: true,
+    associateTorrents: true,
+    associateMagnets: true,
+    startOnBoot: false,
+    minimizeToTray: false,
+    preventSleepDuringTransfers: true,
+    autoCheckUpdates: true,
   });
+  const [torrents, setTorrents] = useState<TorrentItem[]>(torrentEngine.getTorrents());
+  const [bandwidthLimits, setBandwidthLimits] = useState<BandwidthLimits>(torrentEngine.getBandwidthLimits());
+  const [libqrbitConfig, setLibqrbitConfig] = useState<LibqrbitConfig>(torrentEngine.getLibqrbitConfig());
+  const [speedHistory, setSpeedHistory] = useState<SpeedHistoryPoint[]>(torrentEngine.getSpeedHistory());
+  const [logs, setLogs] = useState<LogEntry[]>(torrentEngine.getLogs());
+  const [isThrottlingActive, setIsThrottlingActive] = useState<boolean>(torrentEngine.isThrottlingActive());
+  const [sessionStats, setSessionStats] = useState(torrentEngine.getSessionStats());
+  const [rustConnected, setRustConnected] = useState<boolean>(torrentEngine.isRustDaemonConnected());
+  const [defaultDownloadDir, setDefaultDownloadDir] = useState<string>(torrentEngine.getDefaultDownloadDirectory());
 
-  const [existingDirectories, setExistingDirectories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('flowdown_existing_dirs_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved) as string[];
-        if (!parsed.some((p) => p.includes('C:/Downloads'))) {
-          return parsed;
-        }
-      }
-    } catch {
-      // Use defaults below.
-    }
-    return getDefaultDirectoryList();
-  });
+  const handleResetSessionStats = () => {
+    torrentEngine.resetSessionStats();
+    setSessionStats({ ...torrentEngine.getSessionStats() });
+  };
 
-  const [activeTab, setActiveTab] = useState('all');
-  const [selectedFileType, setSelectedFileType] = useState<FileType | 'all'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<
-    'addedAt' | 'name' | 'size' | 'speed' | 'progress'
-  >('addedAt');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [externalTransferSource, setExternalTransferSource] = useState<string | undefined>();
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-  const [appUpdateInfo, setAppUpdateInfo] = useState<AppUpdateInfo | null>(null);
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [inspectingItem, setInspectingItem] = useState<DownloadItem | null>(null);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [pendingDownloadData, setPendingDownloadData] = useState<NewDownloadData | null>(null);
-  const [contextMenu, setContextMenu] = useState<{
-    item: DownloadItem;
-    x: number;
-    y: number;
-  } | null>(null);
+  const [searchFilter, setSearchFilter] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedTag, setSelectedTag] = useState('All');
 
-  const handleCheckForUpdates = async (showModalIfNoUpdate = true) => {
+  // Split pane resizing states (Left sidebar & Bottom detail pane)
+  const [sidebarWidth, setSidebarWidth] = useState(210);
+  const [isDraggingSidebar, setIsDraggingSidebar] = useState(false);
+  const [detailHeight, setDetailHeight] = useState(200);
+  const [isDraggingDetail, setIsDraggingDetail] = useState(false);
+
+  const handleSidebarMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingSidebar(true);
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(140, Math.min(420, startWidth + deltaX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingSidebar(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleDetailMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingDetail(true);
+    const startY = e.clientY;
+    const startHeight = detailHeight;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = startY - moveEvent.clientY;
+      const newHeight = Math.max(36, Math.min(450, startHeight + deltaY));
+      setDetailHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingDetail(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Modal dialog states
+  const [isAddTorrentOpen, setIsAddTorrentOpen] = useState(false);
+  const [pendingStartupTorrent, setPendingStartupTorrent] = useState<StartupTorrentPayload | null>(null);
+  const [isAddUrlOpen, setIsAddUrlOpen] = useState(false);
+  const [isLibqrbitSettingsOpen, setIsLibqrbitSettingsOpen] = useState(false);
+  const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
+  const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
+  const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
+  const [analyzerInitialTab, setAnalyzerInitialTab] = useState<'p2p' | 'http'>('p2p');
+  const [isTorrentCreatorOpen, setIsTorrentCreatorOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [downloadInfoTorrentId, setDownloadInfoTorrentId] = useState<string | null>(null);
+  const [renameTorrentId, setRenameTorrentId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ title: string; detail: string } | null>(null);
+  const toastTimerRef = React.useRef<number | null>(null);
+
+  const showToast = (title: string, detail: string) => {
+    setToast({ title, detail });
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3500);
+  };
+
+  const copyText = async (text: string): Promise<boolean> => {
     try {
-      setIsCheckingUpdate(true);
-      const info = await checkForUpdate();
-      setAppUpdateInfo(info);
-      if (info.available) {
-        setIsUpdateModalOpen(true);
-      } else if (showModalIfNoUpdate) {
-        setIsUpdateModalOpen(true);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
       }
-    } catch (err: any) {
-      console.warn('[FlowDown] Update check failed:', err);
-      if (showModalIfNoUpdate) {
-        const errorMsg = String(err?.message || err || '');
-        let userMessage = 'Could not connect to GitHub Releases.';
-        if (errorMsg.includes('404') || errorMsg.toLowerCase().includes('not found')) {
-          userMessage = 'No release manifest found on GitHub. FlowDown is currently up to date.';
-        } else if (errorMsg) {
-          userMessage = errorMsg;
-        }
-        addToast('Update Check Failed', userMessage, 'error');
-      }
-    } finally {
-      setIsCheckingUpdate(false);
+    } catch {
+      // Fallback below
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
     }
   };
 
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const handleOpenItem = async (id: string) => {
+    const tor = torrents.find((t) => t.id === id);
+    if (!tor) return;
 
-  const [settings, setSettings] = useState<GlobalSettings>(() => ({
-    maxSimultaneousDownloads: 3,
-    globalSpeedLimit: 0,
-    defaultSavePath: getDefaultDownloadsPath(),
-    autoStartNext: true,
-    soundNotifications: true,
-    theme,
-    minimizeToTaskbar: false,
-    stealthEnabled: true,
-    protocolEncryptionRequired: true,
-    hardwareAcceleration: true,
-    torrentEngine: 'librqbit',
-    torrentListenPort: 51413,
-    torrentRandomizePort: false,
-    disableDht: false,
-    anonymousMode: true,
-    stealthProtocolEncryption: true,
-    stealthPortRandomization: true,
-    stealthSpoofClientId: 'FlowDown/1.0',
-    stealthDhtObfuscation: true,
-    stealthAntiThrottlingNoise: false,
-    uploadSpeedLimit: 0,
-    maxPeersPerTorrent: 80,
-  }));
+    if (tor.isMissing) {
+      showToast('File Missing or Deleted', `Cannot open "${tor.name}". The files are not found on disk at "${tor.savePath}".`);
+      torrentEngine.addLog('TORRENT', `Attempted to open missing transfer "${tor.name}" at "${tor.savePath}".`);
+      return;
+    }
 
-  const activeTransfers = useRef<Set<string>>(new Set());
-  const pausedTorrentIds = useRef<Set<string>>(new Set());
-  const abortedTransferIds = useRef<Set<string>>(new Set());
-  const latestDownloadsRef = useRef(downloads);
-  const pendingRuntimeUpdates = useRef<Map<string, (download: DownloadItem) => DownloadItem>>(new Map());
-  const runtimeFlushTimer = useRef<number | null>(null);
+    const fileCount = tor.files?.length ?? (tor.isHttpSegmented ? 1 : 0);
+    const isMulti = fileCount > 1;
 
-  // High-frequency transfer telemetry should not cause one React state update
-  // per native progress event. Coalesce updates from all active transfers into
-  // one queue update every 200ms. This preserves responsive progress while
-  // avoiding N full-array maps/renders when several downloads run together.
-  latestDownloadsRef.current = downloads;
+    if (isMulti) {
+      // Multi-file: open directory
+      await handleOpenFolder(id);
+    } else {
+      // Single file: open file directly with default OS application
+      const sep = tor.savePath.includes('\\') ? '\\' : '/';
+      const singleFileName = tor.files && tor.files.length === 1 ? tor.files[0].path : tor.name;
+      const targetFilePath = `${tor.savePath.replace(/[/\\]+$/, '')}${sep}${singleFileName}`;
 
-  const scheduleDownloadRuntimeUpdate = (
-    id: string,
-    updater: (download: DownloadItem) => DownloadItem,
-  ) => {
-    pendingRuntimeUpdates.current.set(id, updater);
-
-    if (runtimeFlushTimer.current !== null) return;
-
-    runtimeFlushTimer.current = window.setTimeout(() => {
-      runtimeFlushTimer.current = null;
-      const updates = pendingRuntimeUpdates.current;
-      pendingRuntimeUpdates.current = new Map();
-
-      if (updates.size === 0) return;
-
-      setDownloads((previous) =>
-        previous.map((download) => {
-          const updater = updates.get(download.id);
-          return updater ? updater(download) : download;
-        }),
-      );
-    }, 200);
+      const opened = await apiClient.openItem(targetFilePath);
+      if (!opened) {
+        // Fallback to opening folder
+        await handleOpenFolder(id);
+      } else {
+        torrentEngine.addLog('INFO', `Opened file "${singleFileName}" [Default App].`);
+        showToast('Opened Download', `${singleFileName}`);
+      }
+    }
   };
 
+  const handleOpenFolder = async (id: string) => {
+    const tor = torrents.find((t) => t.id === id);
+    if (!tor) return;
+
+    const openRes = await apiClient.openDestinationFolder(tor.savePath, tor.name);
+    let openedViaBrowser = false;
+
+    if (!openRes?.launchedNative) {
+      openedViaBrowser = await openOsDestinationFolder(tor.savePath, osStyle);
+    }
+
+    const methodLabel = openRes?.launchedNative
+      ? `Native ${openRes.fileManager}`
+      : openedViaBrowser
+      ? 'OS File Manager'
+      : 'Local path';
+
+    torrentEngine.addLog(
+      'INFO',
+      `Opened destination folder "${tor.savePath}" for "${tor.name}" [${methodLabel}].`
+    );
+    showToast('Opened Destination Folder', `${tor.savePath} • ${methodLabel}`);
+  };
+
+  const handleCopyName = async (ids: string[]) => {
+    const selected = torrents.filter((t) => ids.includes(t.id));
+    if (selected.length === 0) return;
+    const payload = selected.map((t) => t.name).join('\n');
+    await copyText(payload);
+    if (selected.length === 1) {
+      torrentEngine.addLog('INFO', `Copied transfer name "${selected[0].name}" to clipboard.`);
+      showToast('Copied Name', selected[0].name);
+    } else {
+      torrentEngine.addLog('INFO', `Copied ${selected.length} transfer names to clipboard.`);
+      showToast('Copied Names', `${selected.length} transfer names copied to clipboard`);
+    }
+  };
+
+  const handleCopyInfoHash = async (ids: string[]) => {
+    const selected = torrents.filter((t) => ids.includes(t.id));
+    if (selected.length === 0) return;
+    const payload = selected.map((t) => t.hash).join('\n');
+    await copyText(payload);
+    if (selected.length === 1) {
+      torrentEngine.addLog('INFO', `Copied SHA-1 info hash (${selected[0].hash}) to clipboard.`);
+      showToast('Copied Info Hash', selected[0].hash);
+    } else {
+      torrentEngine.addLog('INFO', `Copied ${selected.length} SHA-1 info hashes to clipboard.`);
+      showToast('Copied Info Hashes', `${selected.length} SHA-1 hashes copied to clipboard`);
+    }
+  };
+
+  const handleCopyMagnet = async (ids: string[]) => {
+    const selected = torrents.filter((t) => ids.includes(t.id));
+    if (selected.length === 0) return;
+    const payload = selected
+      .map((t) => `magnet:?xt=urn:btih:${t.hash}&dn=${encodeURIComponent(t.name)}`)
+      .join('\n');
+    await copyText(payload);
+    if (selected.length === 1) {
+      torrentEngine.addLog('INFO', `Copied magnet URI for "${selected[0].name}" to clipboard.`);
+      showToast('Copied Magnet URI', `magnet:?xt=urn:btih:${selected[0].hash.slice(0, 16)}...`);
+    } else {
+      torrentEngine.addLog('INFO', `Copied ${selected.length} magnet URIs to clipboard.`);
+      showToast('Copied Magnet URIs', `${selected.length} magnet links copied to clipboard`);
+    }
+  };
+
+  const downloadInfoTorrent = useMemo(() => {
+    if (!downloadInfoTorrentId) return null;
+    return torrents.find((t) => t.id === downloadInfoTorrentId) || null;
+  }, [torrents, downloadInfoTorrentId]);
+
+  const renameTorrentTarget = useMemo(() => {
+    if (!renameTorrentId) return null;
+    return torrents.find((t) => t.id === renameTorrentId) || null;
+  }, [torrents, renameTorrentId]);
+
+  const handleOpenAnalyzer = (tab: 'p2p' | 'http' = 'p2p') => {
+    setAnalyzerInitialTab(tab);
+    setIsAnalyzerOpen(true);
+  };
+
+  // Keep computer from sleeping during active transfers
   useEffect(() => {
+    if (!systemSettingsState.preventSleepDuringTransfers) return;
+    const hasActiveTransfers = torrents.some(
+      (t) => t.status === 'downloading' || t.status === 'stealth_active' || t.status === 'throttled'
+    );
+    let wakeLock: any = null;
+    if (hasActiveTransfers && 'wakeLock' in navigator) {
+      (navigator as any).wakeLock.request('screen').then((lock: any) => {
+        wakeLock = lock;
+      }).catch(() => {});
+    }
     return () => {
-      if (runtimeFlushTimer.current !== null) {
-        window.clearTimeout(runtimeFlushTimer.current);
-        runtimeFlushTimer.current = null;
-      }
-      pendingRuntimeUpdates.current.clear();
-    };
-  }, []);
-
-  // Debounced persistence: keep volatile progress updates in memory and debounce
-  // writing to localStorage so 250ms ticks don't re-serialize the entire queue continuously.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        localStorage.setItem('flowdown_downloads_v2', JSON.stringify(downloads));
-      } catch {
-        // Ignore storage failures.
-      }
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [downloads]);
-
-  // Keep one stable unload listener. The latest queue is read from a ref so
-  // progress updates do not repeatedly add/remove the window listener.
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      try {
-        localStorage.setItem(
-          'flowdown_downloads_v2',
-          JSON.stringify(latestDownloadsRef.current),
-        );
-      } catch {
-        // Ignore
+      if (wakeLock && typeof wakeLock.release === 'function') {
+        wakeLock.release().catch(() => {});
       }
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
+  }, [torrents, systemSettingsState.preventSleepDuringTransfers]);
 
-
-  // Handle .torrent files and magnet: links opened by the operating system.
-  // Cold-start arguments are read from Rust state; subsequent invocations are
-  // forwarded by the single-instance plugin to this running window.
+  // Sync with engine subscription
   useEffect(() => {
-    if (!isTauriEnvironment()) return;
-
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-
-    const openExternalTransfer = (source: string) => {
-      const trimmed = source.trim();
-      if (!trimmed) return;
-      setExternalTransferSource(trimmed);
-      setIsAddModalOpen(true);
-    };
-
-    void invoke<string | null>('take_external_transfer')
-      .then((source) => {
-        if (!cancelled && source) openExternalTransfer(source);
-      })
-      .catch((error) => {
-        console.debug('[FlowDown] No external transfer argument available', error);
-      });
-
-    void listen<{ source: string }>('external-transfer', (event) => {
-      openExternalTransfer(event.payload.source);
-    }).then((stop) => {
-      if (cancelled) {
-        stop();
-      } else {
-        unlisten = stop;
-      }
+    requestAnimationFrame(() => {
+      import('@tauri-apps/api/core')
+        .then(({ invoke }) => invoke('show_main_window'))
+        .catch(() => {});
     });
 
-    // Handle files (.torrent files) dragged and dropped directly onto the Tauri window
-    let unlistenWebviewDrop: (() => void) | undefined;
-    try {
-      void getCurrentWebview().onDragDropEvent((event) => {
-        if (event.payload.type === 'drop' && event.payload.paths?.length) {
-          for (const filePath of event.payload.paths) {
-            const trimmed = filePath.trim();
-            if (trimmed.toLowerCase().endsWith('.torrent') || trimmed.toLowerCase().startsWith('magnet:')) {
-              openExternalTransfer(trimmed);
+    const unsubscribe = torrentEngine.subscribe(() => {
+      const nextTorrents = torrentEngine.getTorrents();
+      setTorrents((prev) => {
+        if (prev === nextTorrents) return prev;
+        if (prev.length === nextTorrents.length) {
+          let allSame = true;
+          for (let i = 0; i < prev.length; i++) {
+            if (prev[i] !== nextTorrents[i]) {
+              allSame = false;
               break;
             }
           }
+          if (allSame) return prev;
         }
-      }).then((stop) => {
-        if (cancelled) {
-          stop();
-        } else {
-          unlistenWebviewDrop = stop;
-        }
+        return [...nextTorrents];
       });
-    } catch (err) {
-      console.debug('[FlowDown] Could not attach native webview onDragDropEvent', err);
-    }
 
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      unlistenWebviewDrop?.();
-    };
-  }, []);
+      const nextLimits = torrentEngine.getBandwidthLimits();
+      setBandwidthLimits((prev) => {
+        if (
+          prev.globalDownloadLimit === nextLimits.globalDownloadLimit &&
+          prev.globalUploadLimit === nextLimits.globalUploadLimit &&
+          prev.altSpeedActive === nextLimits.altSpeedActive &&
+          prev.altDownloadLimit === nextLimits.altDownloadLimit &&
+          prev.altUploadLimit === nextLimits.altUploadLimit &&
+          prev.scheduledAltSpeed === nextLimits.scheduledAltSpeed &&
+          prev.dhtEnabled === nextLimits.dhtEnabled &&
+          prev.pexEnabled === nextLimits.pexEnabled &&
+          prev.lsdEnabled === nextLimits.lsdEnabled &&
+          prev.utpEnabled === nextLimits.utpEnabled
+        ) {
+          return prev;
+        }
+        return { ...nextLimits };
+      });
 
-  const handleWindowDragOver = (e: React.DragEvent) => {
-    // Enable dropping links or text directly into the window
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  };
+      const nextConfig = torrentEngine.getLibqrbitConfig();
+      setLibqrbitConfig((prev) => {
+        if (
+          prev.enabled === nextConfig.enabled &&
+          prev.currentStealthPort === nextConfig.currentStealthPort &&
+          prev.dpiEvasionProfile === nextConfig.dpiEvasionProfile &&
+          prev.autoDetectThrottling === nextConfig.autoDetectThrottling &&
+          prev.aggressivePacketMorph === nextConfig.aggressivePacketMorph &&
+          prev.multiPathFragmentation === nextConfig.multiPathFragmentation &&
+          prev.decoyEchoTunnel === nextConfig.decoyEchoTunnel &&
+          prev.portHopping === nextConfig.portHopping
+        ) {
+          return prev;
+        }
+        return { ...nextConfig };
+      });
 
-  const handleWindowDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (!e.dataTransfer) return;
+      const nextHistory = torrentEngine.getSpeedHistory();
+      setSpeedHistory((prev) => {
+        const lastPrev = prev[prev.length - 1];
+        const lastNext = nextHistory[nextHistory.length - 1];
+        if (lastPrev && lastNext && lastPrev.time === lastNext.time && prev.length === nextHistory.length) {
+          return prev;
+        }
+        return [...nextHistory];
+      });
 
-    const extracted = extractUrlFromDataTransfer(e.dataTransfer);
-    if (extracted) {
-      setExternalTransferSource(extracted);
-      setIsAddModalOpen(true);
-      addToast('Link Received', extracted, 'info');
-    }
-  };
+      const nextLogs = torrentEngine.getLogs();
+      setLogs((prev) => (prev.length === nextLogs.length && prev[0]?.id === nextLogs[0]?.id ? prev : [...nextLogs]));
 
-  // Window-state plugin: restore position/size/maximized state on startup and
-  // save changes while the native window is moved or resized. This is kept in
-  // the Tauri layer so the same behavior works on Windows, macOS and Linux.
-  useEffect(() => {
-    if (!isTauriEnvironment()) return;
+      const throttlingActive = torrentEngine.isThrottlingActive();
+      setIsThrottlingActive((prev) => (prev === throttlingActive ? prev : throttlingActive));
 
-    let cancelled = false;
-    let saveTimer: ReturnType<typeof setTimeout> | null = null;
-    let unlistenMoved: (() => void) | undefined;
-    let unlistenResized: (() => void) | undefined;
-    const persistentFlags = StateFlags.ALL & ~StateFlags.VISIBLE;
+      const nextStats = torrentEngine.getSessionStats();
+      setSessionStats((prev) =>
+        prev.sessionDownloaded === nextStats.sessionDownloaded && prev.sessionUploaded === nextStats.sessionUploaded
+          ? prev
+          : { ...nextStats }
+      );
 
-    const scheduleSave = () => {
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        void saveWindowState(persistentFlags).catch((error) => {
-          console.debug('[FlowDown] Could not save window state', error);
-        });
-      }, 1000);
-    };
+      const rustConnected = torrentEngine.isRustDaemonConnected();
+      setRustConnected((prev) => (prev === rustConnected ? prev : rustConnected));
 
-    const showFallbackTimer = setTimeout(async () => {
+      const defaultDir = torrentEngine.getDefaultDownloadDirectory();
+      setDefaultDownloadDir((prev) => (prev === defaultDir ? prev : defaultDir));
+    });
+
+    const playCompletionChime = () => {
       try {
-        await getCurrentWindow().show();
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, now);
+        osc.frequency.setValueAtTime(880, now + 0.12);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.onended = () => {
+          void ctx.close().catch(() => {});
+        };
+        osc.start(now);
+        osc.stop(now + 0.36);
       } catch {
-        // Window might already be visible.
+        // Ignore audio playback errors
       }
-    }, 80);
-
-    void restoreStateCurrent(persistentFlags)
-      .catch((error) => {
-        console.debug('[FlowDown] Could not restore window state', error);
-      })
-      .finally(async () => {
-        clearTimeout(showFallbackTimer);
-        if (cancelled) return;
-        try {
-          await getCurrentWindow().show();
-        } catch {
-          // The window may already be visible.
-        }
-      });
-
-    void (async () => {
-      const currentWindow = getCurrentWindow();
-      try {
-        unlistenMoved = await currentWindow.onMoved(scheduleSave);
-        unlistenResized = await currentWindow.onResized(scheduleSave);
-      } catch (error) {
-        console.debug('[FlowDown] Could not subscribe to window state events', error);
-      }
-    })();
-
-    const handleBeforeUnload = () => {
-      void saveWindowState(persistentFlags).catch(() => undefined);
     };
-    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    const unsubComplete = torrentEngine.onTransferCompleted((completed) => {
+      const opts = completed.completionOptions;
+      if (!opts || opts.playSoundOnComplete) {
+        playCompletionChime();
+      }
+      showToast('Download Completed', completed.name);
+      if (opts?.openFolderOnComplete) {
+        void handleOpenFolder(completed.id);
+      }
+      if (opts?.exitOnComplete) {
+        void handleExitApplication();
+      }
+    });
+
+    // Load persisted settings from backend
+    apiClient.getSettings().then((persisted) => {
+      if (persisted) {
+        if (persisted.systemSettings) {
+          const resolvedDl = resolveOsDownloadDirectory(persisted.systemSettings.downloadDirectory, osStyle);
+          setSystemSettingsState((prev) => ({
+            ...prev,
+            ...persisted.systemSettings,
+            downloadDirectory: resolvedDl,
+          }));
+          torrentEngine.setDefaultDownloadDirectory(resolvedDl, false);
+          const savedView = persisted.systemSettings.viewMode as 'dark' | 'light' | 'system' | undefined;
+          if (savedView) {
+            setViewModePreference(savedView);
+            if (savedView === 'system') {
+              setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            } else {
+              setTheme(savedView);
+            }
+          }
+        }
+        if (persisted.bandwidthLimits) {
+          torrentEngine.setBandwidthLimits(persisted.bandwidthLimits);
+        }
+        if (persisted.httpSettings) {
+          torrentEngine.setHttpSettings(persisted.httpSettings);
+        }
+        if (persisted.libqrbitConfig) {
+          const cfg = { ...persisted.libqrbitConfig };
+          if (cfg.randomPortOnStartup) {
+            const startupPort = Math.floor(49152 + Math.random() * (65535 - 49152));
+            cfg.currentStealthPort = startupPort;
+            torrentEngine.addLog('SECURITY', `Random port on startup enabled: bound to ephemeral port ${startupPort}.`);
+          }
+          torrentEngine.updateLibqrbitConfig(cfg);
+        }
+      }
+      const assocTorrents = persisted?.systemSettings?.associateTorrents ?? true;
+      const assocMagnets = persisted?.systemSettings?.associateMagnets ?? true;
+      if (assocTorrents || assocMagnets) {
+        void apiClient.registerAssociations(assocTorrents, assocMagnets);
+      }
+    });
+
+    // Check if the OS launched FlowDown via double-clicked .torrent file or magnet:// link
+    import('@tauri-apps/api/core')
+      .then(async ({ invoke }) => {
+        const payload = await invoke<{
+          kind?: 'torrent' | 'magnet';
+          magnetUri?: string;
+          filePath?: string;
+          fileName?: string;
+          fileSize?: number;
+          infoHash?: string;
+          files?: any[];
+          pieceLength?: number;
+          pieceCount?: number;
+          trackers?: string[];
+        } | null>('get_startup_open_payload');
+        if (!payload?.kind) return;
+        if (payload.kind === 'magnet' && payload.magnetUri) {
+          // Open unified AddTorrentModal pre-populated with magnet URI
+          setPendingStartupTorrent({
+            magnetUri: payload.magnetUri,
+            fileName: payload.fileName,
+            fileSize: payload.fileSize,
+            infoHash: payload.infoHash,
+            files: payload.files,
+            pieceLength: payload.pieceLength,
+            pieceCount: payload.pieceCount,
+            trackers: payload.trackers,
+          });
+          setIsAddTorrentOpen(true);
+        } else if (payload.kind === 'torrent') {
+          // Open AddTorrentModal pre-populated with probed metadata and file list like qBittorrent
+          setPendingStartupTorrent({
+            filePath: payload.filePath,
+            fileName: payload.fileName,
+            fileSize: payload.fileSize,
+            infoHash: payload.infoHash,
+            files: payload.files,
+            pieceLength: payload.pieceLength,
+            pieceCount: payload.pieceCount,
+            trackers: payload.trackers,
+          });
+          setIsAddTorrentOpen(true);
+        }
+      })
+      .catch(() => {});
 
     return () => {
-      cancelled = true;
-      clearTimeout(showFallbackTimer);
-      if (saveTimer) clearTimeout(saveTimer);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      unlistenMoved?.();
-      unlistenResized?.();
-      void saveWindowState(persistentFlags).catch(() => undefined);
+      unsubscribe();
+      unsubComplete();
     };
   }, []);
 
+  // Listen to OS system theme when viewModePreference === 'system'
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        'flowdown_existing_dirs_v2',
-        JSON.stringify(existingDirectories)
-      );
-    } catch {
-      // Ignore storage failures.
-    }
-  }, [existingDirectories]);
+    if (viewModePreference !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => setTheme(mq.matches ? 'dark' : 'light');
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [viewModePreference]);
 
+  // Global keyboard shortcuts (Ctrl+O Add Torrent, Ctrl+U Add Magnet, Ctrl+, Preferences)
   useEffect(() => {
-    try {
-      const savedSettings = localStorage.getItem('flowdown_settings_v2');
-      if (!savedSettings) return;
-
-      const parsed = JSON.parse(savedSettings) as Partial<GlobalSettings>;
-      const defaultPath =
-        parsed.defaultSavePath === 'C:/Downloads' || !parsed.defaultSavePath
-          ? getDefaultDownloadsPath()
-          : parsed.defaultSavePath;
-
-      setSettings((current) => ({
-        ...current,
-        ...parsed,
-        defaultSavePath: defaultPath,
-      }));
-
-      if (parsed.theme === 'dark' || parsed.theme === 'light') {
-        setTheme(parsed.theme);
-      }
-    } catch {
-      // Ignore malformed persisted settings.
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('flowdown_settings_v2', JSON.stringify(settings));
-    } catch {
-      // Ignore storage failures.
-    }
-
-    void updateTorrentEngineConfigNative({
-      listenPort: settings.torrentListenPort,
-      randomizePort: settings.torrentRandomizePort,
-      disableDht: settings.disableDht,
-      anonymousMode: settings.anonymousMode,
-      clientIdSpoof: settings.stealthSpoofClientId,
-    }).catch((err) => {
-      console.debug('[FlowDown] Could not update torrent engine config', err);
-    });
-  }, [
-    settings,
-    settings.torrentListenPort,
-    settings.torrentRandomizePort,
-    settings.disableDht,
-    settings.anonymousMode,
-    settings.stealthSpoofClientId,
-  ]);
-
-  useEffect(() => {
-    void resolveDownloadPath(settings.defaultSavePath)
-      .then((actualPath) => {
-        if (actualPath && actualPath !== settings.defaultSavePath) {
-          setSettings((current) => ({ ...current, defaultSavePath: actualPath }));
-        }
-      })
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all(existingDirectories.map(async (directory) => resolveDownloadPath(directory)))
-      .then((resolved) => {
-        if (!cancelled) {
-          const unique = Array.from(new Set(resolved));
-          if (unique.some((path, index) => path !== existingDirectories[index]) || unique.length !== existingDirectories.length) {
-            setExistingDirectories(unique);
-          }
-        }
-      })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all(
-      downloads.map(async (download) => ({
-        id: download.id,
-        path: await resolveDownloadPath(download.savePath),
-      }))
-    )
-      .then((resolved) => {
-        if (cancelled) return;
-        const changed = resolved.some((entry) => {
-          const current = downloads.find((download) => download.id === entry.id);
-          return current && current.savePath !== entry.path;
-        });
-        if (!changed) return;
-        setDownloads((current) =>
-          current.map((download) => {
-            const entry = resolved.find((item) => item.id === download.id);
-            return entry ? { ...download, savePath: entry.path } : download;
-          })
-        );
-      })
-      .catch(() => undefined);
-
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    const root = document.documentElement;
-
-    const applyTheme = () => {
-      let isDark = false;
-      if (theme === 'system') {
-        isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      } else {
-        isDark = theme === 'dark';
-      }
-      root.classList.toggle('dark', isDark);
-      root.style.colorScheme = isDark ? 'dark' : 'light';
-    };
-
-    applyTheme();
-
-    if (theme === 'system' && window.matchMedia) {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const listener = () => applyTheme();
-      mediaQuery.addEventListener('change', listener);
-      return () => mediaQuery.removeEventListener('change', listener);
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    if (startupLogWritten) return;
-    startupLogWritten = true;
-    void logger.log('FlowDown UI started');
-  }, []);
-
-  useEffect(() => {
-    if (!inspectingItem) return;
-    const current = downloads.find((d) => d.id === inspectingItem.id);
-    if (current) setInspectingItem(current);
-  }, [downloads, inspectingItem]);
-
-  const addToast = (
-    title: string,
-    description: string,
-    type: 'success' | 'info' | 'error' = 'info'
-  ) => {
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts((prev) => [...prev, { id, title, description, type }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, 4000);
-  };
-
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
-
-  const playChime = () => {
-    if (!settings.soundNotifications) return;
-
-    try {
-      const AudioContextCtor =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!AudioContextCtor) return;
-
-      const ctx = new AudioContextCtor();
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(587.33, ctx.currentTime);
-      oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.3);
-    } catch {
-      // Audio may be blocked until a user gesture.
-    }
-  };
-
-  const toggleTheme = () => {
-    const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
-    setTheme(next);
-    setSettings((current) => ({ ...current, theme: next }));
-  };
-
-  const handleAddDirectory = (path: string) => {
-    setExistingDirectories((previous) =>
-      previous.includes(path) ? previous : [...previous, path]
-    );
-  };
-
-  const startTransfer = async (item: DownloadItem) => {
-    if (activeTransfers.current.has(item.id)) return;
-
-    activeTransfers.current.add(item.id);
-
-    setDownloads((previous) =>
-      previous.map((download) =>
-        download.id === item.id
-          ? {
-              ...download,
-              status: 'downloading',
-              speed: 0,
-              preparing: true,
-              preparingLabel: item.isTorrent || item.fileType === 'torrent' || item.engine === 'librqbit'
-                ? 'Connecting to peer swarm...'
-                : 'Establishing connection & splitting...',
-            }
-          : download
-      )
-    );
-
-    try {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
       if (
-        item.isTorrent ||
-        item.fileType === 'torrent' ||
-        item.engine === 'librqbit'
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement instanceof HTMLSelectElement
       ) {
-        await logger.log(
-          `Starting BitTorrent download: ${item.name} | ${item.url}`
-        );
-        await logger.log(`Requested torrent save path: ${item.savePath}`);
-
-        const selectedFileIndexes = item.torrentFiles
-          ?.map((file, index) => (file.selected === false ? undefined : index))
-          .filter((index): index is number => index !== undefined);
-
-        let torrentId = item.torrentId;
-        let torrentInfoHash = item.infoHash;
-        let torrentName = item.name;
-        let torrentTotal = item.size;
-        const torrentIsMultiFile =
-          item.torrentIsMultiFile ?? ((item.torrentFiles?.length ?? 0) > 1);
-        let torrentSubfolder = torrentIsMultiFile
-          ? (item.torrentSubfolder || item.name)
-          : undefined;
-
-        if (torrentId !== undefined) {
-          await resumeTorrentNative(torrentId);
-          pausedTorrentIds.current.delete(item.id);
-          await logger.log(`Resumed native torrent: ${torrentId}`);
-        } else {
-          const torrent = await startTorrentNative(
-            item.url,
-            item.savePath,
-            selectedFileIndexes && selectedFileIndexes.length > 0
-              ? selectedFileIndexes
-              : undefined,
-            true,
-            torrentIsMultiFile ? item.name : undefined
-          );
-
-          torrentId = torrent.torrentId;
-          torrentInfoHash = torrent.infoHash;
-          torrentName = torrent.name || item.name;
-          torrentTotal = torrent.total > 0 ? torrent.total : item.size;
-          torrentSubfolder = torrentIsMultiFile
-            ? (torrent.subFolder || torrentName)
-            : undefined;
-
-          await logger.log(`Native torrent started: ${torrent.torrentId}`);
-          await logger.log(`Native torrent info hash: ${torrent.infoHash}`);
-        }
-
-        if (torrentId === undefined) {
-          throw new Error('Native torrent did not return a torrent ID');
-        }
-
-        const managedTorrentId = torrentId;
-
-        setDownloads((previous) =>
-          previous.map((download) =>
-            download.id === item.id
-              ? {
-                  ...download,
-                  torrentId: managedTorrentId,
-                  infoHash: torrentInfoHash,
-                  name: torrentName,
-                  size: torrentTotal,
-                  torrentSubfolder,
-                  torrentIsMultiFile,
-                  isTorrent: true,
-                  engine: 'librqbit',
-                  status: 'downloading',
-                  preparing: true,
-                  preparingLabel: 'Preparing torrent...',
-                }
-              : download
-          )
-        );
-
-        let lastDownloaded = item.downloaded;
-        let lastAt = performance.now();
-
-        while (true) {
-          if (abortedTransferIds.current.has(item.id)) {
-            return;
-          }
-
-          if (pausedTorrentIds.current.has(item.id)) {
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 500);
-            });
-            continue;
-          }
-
-          let progress;
-          try {
-            progress = await getTorrentProgressNative(managedTorrentId);
-          } catch (error) {
-            if (abortedTransferIds.current.has(item.id)) {
-              return;
-            }
-            throw error;
-          }
-
-          if (abortedTransferIds.current.has(item.id)) {
-            return;
-          }
-
-          if (progress.error) {
-            if (abortedTransferIds.current.has(item.id)) {
-              return;
-            }
-            throw new Error(progress.error);
-          }
-
-          const now = performance.now();
-          const elapsed = Math.max((now - lastAt) / 1000, 0.001);
-
-          const initializing = progress.state.toLowerCase() === 'initializing';
-          const liveDownloading = !initializing && !progress.finished;
-          
-          // Actual downloaded bytes reported by engine
-          const actualDownloaded = initializing
-            ? 0
-            : progress.finished
-              ? (progress.total > 0 ? progress.total : torrentTotal)
-              : Math.min(progress.downloaded, progress.total > 0 ? progress.total : torrentTotal);
-
-          const delta = liveDownloading
-            ? Math.max(0, actualDownloaded - lastDownloaded)
-            : 0;
-          const measuredSpeed = liveDownloading
-            ? Math.round(delta / elapsed)
-            : 0;
-
-          if (initializing) {
-            lastDownloaded = 0;
-            lastAt = now;
-          } else {
-            lastDownloaded = actualDownloaded;
-            lastAt = now;
-          }
-
-          const total =
-            progress.total > 0
-              ? progress.total
-              : torrentTotal;
-
-          const percent =
-            total > 0 ? Math.min(100, (actualDownloaded / total) * 100) : 0;
-
-          scheduleDownloadRuntimeUpdate(item.id, (download) => {
-            const nextChunkProgress = Math.floor(percent);
-            const nextChunkStatus = progress.finished
-              ? 'downloading' as const
-              : initializing
-                ? 'idle' as const
-                : 'downloading' as const;
-            const currentChunkProgress = download.chunks[0]?.progress;
-            const chunks =
-              currentChunkProgress === nextChunkProgress
-                ? download.chunks
-                : download.chunks.map((chunk) => ({
-                    ...chunk,
-                    progress: nextChunkProgress,
-                    status: nextChunkStatus,
-                  }));
-
-            const isWaitingForPeers = initializing || (liveDownloading && actualDownloaded === 0 && measuredSpeed === 0);
-            const isPreparing = progress.finished || initializing || isWaitingForPeers;
-
-            return {
-              ...download,
-              infoHash: progress.infoHash || torrentInfoHash,
-              size: total,
-              downloaded: actualDownloaded,
-              speed: isPreparing || progress.finished ? 0 : measuredSpeed,
-              preparing: isPreparing,
-              preparingLabel: progress.finished
-                ? 'Preparing file...'
-                : initializing
-                  ? 'Allocating & verifying pieces...'
-                  : isWaitingForPeers
-                    ? 'Connecting to peers & searching swarm...'
-                    : undefined,
-              activeConnections: initializing || progress.finished
-                ? 0
-                : download.connections,
-              speedHistory:
-                isPreparing || progress.finished
-                  ? download.speedHistory
-                  : [
-                      ...download.speedHistory.slice(-9),
-                      Number((measuredSpeed / (1024 * 1024)).toFixed(1)),
-                    ],
-              chunks,
-            };
-          });
-
-          if (progress.finished) {
-            await logger.log(
-              `Torrent reached 100%: ${torrentName}. All selected pieces are complete and verified.`
-            );
-            await logger.log(`Preparing completed file(s): releasing torrent file handles...`);
-            await waitForTorrentReadyNative(managedTorrentId);
-            await logger.log(`Completed file(s) are ready: ${torrentName}`);
-            break;
-          }
-
-          await new Promise<void>((resolve) => {
-            window.setTimeout(resolve, 750);
-          });
-        }
-
-        const finishedAt = new Date().toISOString();
-
-        setDownloads((previous) =>
-          previous.map((download) => {
-            if (download.id !== item.id) return download;
-
-            const finalSize =
-              download.size > 0 ? download.size : download.downloaded;
-
-            return {
-              ...download,
-              size: finalSize,
-              downloaded: finalSize,
-              speed: 0,
-              activeConnections: 0,
-              status: 'completed',
-              preparing: false,
-              preparingLabel: undefined,
-              completedAt: finishedAt,
-              chunks: download.chunks.map((chunk) => ({
-                ...chunk,
-                progress: 100,
-                status: 'completed',
-              })),
-            };
-          })
-        );
-
-        pausedTorrentIds.current.delete(item.id);
-        await logger.log(`BitTorrent download completed: ${item.name}`);
-        playChime();
-        addToast('Torrent Completed', item.name, 'success');
         return;
       }
-
-      if (!/^https?:\/\//i.test(item.url)) {
-        throw new Error(
-          'Only HTTP(S) downloads or BitTorrent magnet/.torrent inputs are supported'
-        );
-      }
-
-      let lastProgress = item.downloaded;
-      let lastProgressAt = performance.now();
-      let frontendSmoothedSpeed = 0;
-
-      await logger.log(`Starting HTTP download: ${item.name} | ${item.url}`);
-      await logger.log(`Requested save path: ${item.savePath}`);
-
-      const result = await downloadFileNative(
-        item.url,
-        `${item.savePath}/${item.name}`,
-        item.connections || 16,
-        (progress, total, transferSpeed = 0, activeConnections = 1) => {
-          const now = performance.now();
-          const elapsedSeconds = Math.max(
-            (now - lastProgressAt) / 1000,
-            0.001
-          );
-          const bytesDelta = Math.max(0, progress - lastProgress);
-          const measuredSpeed = Math.round(bytesDelta / elapsedSeconds);
-          frontendSmoothedSpeed =
-            frontendSmoothedSpeed === 0
-              ? measuredSpeed
-              : Math.round(frontendSmoothedSpeed * 0.7 + measuredSpeed * 0.3);
-          const speed =
-            transferSpeed > 0 ? Math.round(transferSpeed) : frontendSmoothedSpeed;
-
-          lastProgress = progress;
-          lastProgressAt = now;
-
-          scheduleDownloadRuntimeUpdate(item.id, (download) => {
-            const nextSize = total > 0 ? total : download.size;
-            const nextDownloaded = Math.max(download.downloaded, progress);
-            const percent =
-              nextSize > 0
-                ? Math.min(100, (nextDownloaded / nextSize) * 100)
-                : 0;
-            const nextChunkProgress = Math.floor(percent);
-            const chunks =
-              download.chunks[0]?.progress === nextChunkProgress
-                ? download.chunks
-                : download.chunks.map((chunk) => ({
-                    ...chunk,
-                    progress: nextChunkProgress,
-                    status: 'downloading' as const,
-                  }));
-
-            return {
-              ...download,
-              status: 'downloading',
-              size: nextSize,
-              downloaded: nextDownloaded,
-              speed,
-              activeConnections,
-              speedHistory: [
-                ...download.speedHistory.slice(-9),
-                Number((speed / (1024 * 1024)).toFixed(1)),
-              ],
-              chunks,
-            };
-          });
-        },
-        item.id,
-      );
-
-      if (result.paused) {
-        setDownloads((previous) =>
-          previous.map((download) =>
-            download.id === item.id
-              ? {
-                  ...download,
-                  status: 'paused',
-                  speed: 0,
-                  activeConnections: 0,
-                }
-              : download
-          )
-        );
-        await logger.log(`HTTP download paused: ${item.name}`);
-        addToast('Download Paused', item.name, 'info');
-        return;
-      }
-
-      if (!result.success) {
-        throw result.error instanceof Error
-          ? result.error
-          : new Error(`Download failed (${result.method})`);
-      }
-
-      const finishedAt = new Date().toISOString();
-
-      setDownloads((previous) =>
-        previous.map((download) => {
-          if (download.id !== item.id) return download;
-
-          const finalSize =
-            download.size > 0 ? download.size : download.downloaded;
-
-          return {
-            ...download,
-            size: finalSize,
-            downloaded: finalSize,
-            speed: 0,
-            activeConnections: 1,
-            status: 'completed',
-            completedAt: finishedAt,
-            chunks: download.chunks.map((chunk) => ({
-              ...chunk,
-              progress: 100,
-              status: 'completed' as const,
-            })),
-          };
-        })
-      );
-
-      await logger.log(`Download completed: ${item.name}`);
-      await logger.log(
-        `Resolved file path: ${
-          result.filePath || `${item.savePath}/${item.name}`
-        }`
-      );
-
-      playChime();
-      addToast('Download Completed', item.name, 'success');
-    } catch (error) {
-      if (abortedTransferIds.current.has(item.id)) {
-        await logger.log(`Transfer cancelled/deleted by user: ${item.name}`);
-        return;
-      }
-
-      await logger.error(`Transfer failed: ${item.name}`, error);
-
-      setDownloads((previous) =>
-        previous.map((download) =>
-          download.id === item.id
-            ? { ...download, status: 'error', speed: 0 }
-            : download
-        )
-      );
-
-      addToast(
-        'Download Failed',
-        `${item.name}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        'error'
-      );
-    } finally {
-      activeTransfers.current.delete(item.id);
-      abortedTransferIds.current.delete(item.id);
-    }
-  };
-
-  const filteredDownloads = useMemo(() => {
-    return downloads
-      .filter((item) => {
-        if (activeTab !== 'all' && item.status !== activeTab) return false;
-
-        if (selectedFileType !== 'all') {
-          if (
-            selectedFileType === 'torrent' &&
-            !(item.fileType === 'torrent' || item.isTorrent)
-          ) {
-            return false;
-          }
-          if (
-            selectedFileType !== 'torrent' &&
-            item.fileType !== selectedFileType
-          ) {
-            return false;
-          }
+      if (e.ctrlKey || e.metaKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'o' || key === 'u') {
+          e.preventDefault();
+          setIsAddTorrentOpen(true);
+        } else if (key === ',') {
+          e.preventDefault();
+          setIsLibqrbitSettingsOpen(true);
         }
-
-        if (searchQuery.trim()) {
-          const query = searchQuery.toLowerCase();
-          return (
-            item.name.toLowerCase().includes(query) ||
-            item.url.toLowerCase().includes(query) ||
-            item.category.toLowerCase().includes(query)
-          );
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        let comparison = 0;
-
-        switch (sortBy) {
-          case 'addedAt':
-            comparison =
-              new Date(a.addedAt).getTime() -
-              new Date(b.addedAt).getTime();
-            break;
-          case 'name':
-            comparison = a.name.localeCompare(b.name);
-            break;
-          case 'size':
-            comparison = a.size - b.size;
-            break;
-          case 'speed':
-            comparison = a.speed - b.speed;
-            break;
-          case 'progress': {
-            const progressA = a.size > 0 ? a.downloaded / a.size : 0;
-            const progressB = b.size > 0 ? b.downloaded / b.size : 0;
-            comparison = progressA - progressB;
-            break;
-          }
-        }
-
-        return sortOrder === 'desc' ? -comparison : comparison;
-      });
-  }, [
-    downloads,
-    activeTab,
-    selectedFileType,
-    searchQuery,
-    sortBy,
-    sortOrder,
-  ]);
-
-  // These values are all derived from the same queue snapshot. Compute them in
-  // one pass instead of performing multiple filter/reduce traversals every time
-  // high-frequency transfer telemetry updates the queue.
-  const queueStats = useMemo(() => {
-    const stats = {
-      counts: {
-        all: downloads.length,
-        downloading: 0,
-        paused: 0,
-        completed: 0,
-        queued: 0,
-        torrent: 0,
-        video: 0,
-        audio: 0,
-        software: 0,
-        archive: 0,
-        document: 0,
-        image: 0,
-      },
-      totalActiveSpeed: 0,
-      activeCount: 0,
-      totalDownloadedToday: 0,
+      }
     };
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
 
-    for (const download of downloads) {
-      stats.totalDownloadedToday += download.downloaded;
+  // Prevent desktop webview navigation/reload when dropping files outside dedicated drop zones
+  useEffect(() => {
+    const preventDragNav = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', preventDragNav);
+    window.addEventListener('drop', preventDragNav);
+    return () => {
+      window.removeEventListener('dragover', preventDragNav);
+      window.removeEventListener('drop', preventDragNav);
+    };
+  }, []);
 
-      switch (download.status) {
-        case 'downloading':
-          stats.counts.downloading += 1;
-          stats.activeCount += 1;
-          stats.totalActiveSpeed += download.speed;
-          break;
-        case 'paused':
-          stats.counts.paused += 1;
-          break;
-        case 'completed':
-          stats.counts.completed += 1;
-          break;
-        case 'queued':
-          stats.counts.queued += 1;
-          break;
-      }
-
-      if (download.fileType === 'torrent' || download.isTorrent) stats.counts.torrent += 1;
-      if (download.fileType === 'video') stats.counts.video += 1;
-      if (download.fileType === 'audio') stats.counts.audio += 1;
-      if (download.fileType === 'software') stats.counts.software += 1;
-      if (download.fileType === 'archive') stats.counts.archive += 1;
-      if (download.fileType === 'document') stats.counts.document += 1;
-      if (download.fileType === 'image') stats.counts.image += 1;
-    }
-
-    return stats;
-  }, [downloads]);
-
-  const {
-    counts,
-    totalActiveSpeed,
-    activeCount,
-    totalDownloadedToday,
-  } = queueStats;
-
-  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-
-  const handleTogglePause = async (id: string) => {
-    const item = downloads.find((download) => download.id === id);
-    if (!item) return;
-
-    const isTorrent =
-      item.isTorrent || item.fileType === 'torrent' || item.engine === 'librqbit';
-
-    if (isTorrent) {
-      if (item.status === 'downloading' && item.torrentId !== undefined) {
-        pausedTorrentIds.current.add(item.id);
-        void pauseTorrentNative(item.torrentId)
-          .then(async () => {
-            await logger.log(`Paused native torrent ${item.torrentId}: ${item.name}`);
-            setDownloads((previous) =>
-              previous.map((download) =>
-                download.id === item.id
-                  ? { ...download, status: 'paused', speed: 0, activeConnections: 0 }
-                  : download
-              )
-            );
-            addToast('Torrent Paused', item.name, 'info');
-          })
-          .catch((error) => {
-            pausedTorrentIds.current.delete(item.id);
-            addToast(
-              'Could Not Pause Torrent',
-              error instanceof Error ? error.message : String(error),
-              'error'
-            );
-          });
-        return;
-      }
-
-      if (item.status === 'paused' && item.torrentId !== undefined) {
-        pausedTorrentIds.current.delete(item.id);
-        void resumeTorrentNative(item.torrentId)
-          .then(async () => {
-            await logger.log(`Resumed native torrent ${item.torrentId}: ${item.name}`);
-            setDownloads((previous) =>
-              previous.map((download) =>
-                download.id === item.id
-                  ? { ...download, status: 'downloading' }
-                  : download
-              )
-            );
-            addToast('Torrent Resumed', item.name, 'success');
-          })
-          .catch((error) => {
-            pausedTorrentIds.current.add(item.id);
-            addToast(
-              'Could Not Resume Torrent',
-              error instanceof Error ? error.message : String(error),
-              'error'
-            );
-          });
-        return;
-      }
-
-      if (item.status === 'queued' || (item.status === 'paused' && item.torrentId === undefined)) {
-        void startTransfer(item);
-      }
-      return;
-    }
-
-    if (item.status === 'downloading') {
-      try {
-        await pauseHttpDownloadNative(item.id);
-        await logger.log(`Pause requested for HTTP download: ${item.name}`);
-      } catch (error) {
-        addToast(
-          'Could Not Pause Download',
-          error instanceof Error ? error.message : String(error),
-          'error'
-        );
-      }
-      return;
-    }
-
-    if (item.status === 'queued' || item.status === 'paused') {
-      void startTransfer(item);
-    }
-  };
-
-  const cleanupIncompleteTransferFiles = async (item: DownloadItem) => {
-    if (item.status === 'completed') return;
-
-    const isTorrent =
-      item.isTorrent ||
-      item.engine === 'librqbit' ||
-      item.fileType === 'torrent';
-    const targetPath = isTorrent && item.torrentIsMultiFile
-      ? await joinPathNative(
-          item.savePath,
-          item.torrentSubfolder || item.name,
-        )
-      : await joinPathNative(item.savePath, item.name);
-
-    await deleteIncompleteTransferNative({
-      path: targetPath,
-      torrentId: isTorrent ? item.torrentId : undefined,
-      torrentIsMultiFile: Boolean(isTorrent && item.torrentIsMultiFile),
-    });
-
-    await logger.log(`Deleted incomplete transfer files: ${targetPath}`);
-  };
-
-  const handleDelete = async (id: string) => {
-    const item = downloads.find((download) => download.id === id);
-    if (!item) return false;
-
-    abortedTransferIds.current.add(id);
-
-    try {
-      await cleanupIncompleteTransferFiles(item);
-    } catch (error) {
-      await logger.error(`Failed to delete incomplete transfer files: ${item.name}`, error);
-      addToast(
-        'Could Not Delete Download Files',
-        error instanceof Error ? error.message : String(error),
-        'error',
-      );
-      return false;
-    }
-
-    setDownloads((previous) => previous.filter((download) => download.id !== id));
-    setSelectedIds((previous) => previous.filter((selectedId) => selectedId !== id));
-    pausedTorrentIds.current.delete(id);
-    activeTransfers.current.delete(id);
-    addToast('Transfer Removed', item.name, 'info');
-    return true;
-  };
-
-  const handlePauseAll = () => {
-    const active = downloads.filter((download) => download.status === 'downloading');
-    const torrentTransfers = active.filter(
-      (download) =>
-        (download.isTorrent || download.fileType === 'torrent' || download.engine === 'librqbit') &&
-        download.torrentId !== undefined
-    );
-    const httpTransfers = active.filter(
-      (download) => !download.isTorrent && download.fileType !== 'torrent' && download.engine !== 'librqbit'
-    );
-
-    torrentTransfers.forEach((item) => handleTogglePause(item.id));
-
-    httpTransfers.forEach((item) => {
-      void handleTogglePause(item.id);
-    });
-  };
-
-  const handleResumeAll = () => {
-    const resumable = downloads.filter(
-      (download) => download.status === 'paused' || download.status === 'queued'
-    );
-
-    resumable.forEach((item) => handleTogglePause(item.id));
-
-    if (resumable.length > 0) {
-      addToast(
-        'Transfers Resuming',
-        `Resuming ${resumable.length} queued or paused transfer(s)`,
-        'info'
-      );
-    }
-  };
-
-  const handleClearCompleted = () => {
-    const count = downloads.filter((download) => download.status === 'completed')
-      .length;
-    setDownloads((previous) =>
-      previous.filter((download) => download.status !== 'completed')
-    );
-    addToast('Cleared Finished', `Removed ${count} completed items`, 'info');
-  };
-
-  const handleToggleSelect = (id: string, event?: React.MouseEvent) => {
-    if (event?.shiftKey && selectedIds.length > 0) {
-      const lastId = selectedIds[selectedIds.length - 1];
-      const firstIndex = filteredDownloads.findIndex((item) => item.id === lastId);
-      const secondIndex = filteredDownloads.findIndex((item) => item.id === id);
-
-      if (firstIndex !== -1 && secondIndex !== -1) {
-        const start = Math.min(firstIndex, secondIndex);
-        const end = Math.max(firstIndex, secondIndex);
-        const rangeIds = filteredDownloads
-          .slice(start, end + 1)
-          .map((item) => item.id);
-        setSelectedIds((previous) =>
-          Array.from(new Set([...previous, ...rangeIds]))
-        );
-        return;
-      }
-    }
-
-    setSelectedIds((previous) =>
-      previous.includes(id)
-        ? previous.filter((selectedId) => selectedId !== id)
-        : [...previous, id]
-    );
-  };
-
-  const handleSelectAll = () => {
-    if (
-      filteredDownloads.length > 0 &&
-      selectedIds.length === filteredDownloads.length
-    ) {
-      setSelectedIds([]);
+  // Sync OS palette & Light/Dark theme with document root
+  useEffect(() => {
+    document.documentElement.setAttribute('data-os', osStyle);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
     } else {
-      setSelectedIds(filteredDownloads.map((item) => item.id));
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+    }
+  }, [osStyle, theme]);
+
+  // Theme synchronization with HTML element
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setViewModePreference(next);
+    setTheme(next);
+    torrentEngine.addLog('INFO', `Switched desktop palette to ${osStyle.toUpperCase()} ${next === 'dark' ? 'Dark' : 'Light'}.`);
+  };
+
+  // Filter torrents
+  const filteredTorrents = useMemo(() => {
+    return torrents.filter((t) => {
+      // Search
+      if (searchFilter.trim()) {
+        const query = searchFilter.toLowerCase();
+        const matchName = t.name.toLowerCase().includes(query);
+        const matchHash = t.hash.toLowerCase().includes(query);
+        const matchTag = t.tags.some((tag) => tag.toLowerCase().includes(query));
+        if (!matchName && !matchHash && !matchTag) return false;
+      }
+
+      // Status
+      if (selectedStatus === 'downloading') {
+        const isDownloadingLike =
+          t.status === 'downloading' ||
+          t.status === 'stealth_active' ||
+          t.status === 'checking' ||
+          t.status === 'queued' ||
+          (t.progress < 100 && t.status !== 'paused');
+        if (!isDownloadingLike) return false;
+      }
+      if (selectedStatus === 'seeding' && t.status !== 'seeding') return false;
+      if (selectedStatus === 'completed' && t.progress < 100) return false;
+      if (selectedStatus === 'paused' && t.status !== 'paused') return false;
+      if (selectedStatus === 'throttled' && t.status !== 'throttled') return false;
+      if (selectedStatus === 'stealth' && (!t.libqrbitEnabled || t.status !== 'stealth_active')) return false;
+
+      // Category
+      if (selectedCategory !== 'All' && t.category !== selectedCategory) return false;
+
+      // Tag
+      if (selectedTag !== 'All' && !t.tags.includes(selectedTag)) return false;
+
+      return true;
+    });
+  }, [torrents, searchFilter, selectedStatus, selectedCategory, selectedTag]);
+
+  // Aggregate Speeds
+  const totalDownSpeed = torrents.reduce((acc, t) => acc + (t.downloadSpeed || 0), 0);
+  const totalUpSpeed = torrents.reduce((acc, t) => acc + (t.uploadSpeed || 0), 0);
+
+  // Selected item (primary selected item for detail tabs)
+  const primaryId = selectedId || (selectedIds.length > 0 ? selectedIds[0] : null);
+  const selectedTorrent = torrents.find((t) => t.id === primaryId) || null;
+  const selectedIsDownloading = useMemo(() => {
+    const activeIds = selectedIds.length > 0 ? selectedIds : selectedId ? [selectedId] : [];
+    if (activeIds.length === 0) return false;
+    return activeIds.some((id) => {
+      const tor = torrents.find((t) => t.id === id);
+      return (
+        tor &&
+        (tor.status === 'downloading' ||
+          tor.status === 'stealth_active' ||
+          tor.status === 'throttled' ||
+          tor.status === 'checking')
+      );
+    });
+  }, [torrents, selectedIds, selectedId]);
+
+  // Actions (operating on multi-selected items)
+  const handleResumeSelected = () => {
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => torrentEngine.resumeTorrent(id));
+    } else if (selectedId) {
+      torrentEngine.resumeTorrent(selectedId);
+    }
+  };
+
+  const handleStopSelected = () => {
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => torrentEngine.stopTorrent(id));
+    } else if (selectedId) {
+      torrentEngine.stopTorrent(selectedId);
     }
   };
 
   const handlePauseSelected = () => {
-    const active = downloads.filter(
-      (item) => selectedIdSet.has(item.id) && item.status === 'downloading'
-    );
-
-    active.forEach((item) => handleTogglePause(item.id));
-  };
-
-  const handleResumeSelected = () => {
-    const resumable = downloads.filter(
-      (item) =>
-        selectedIdSet.has(item.id) &&
-        (item.status === 'paused' || item.status === 'queued')
-    );
-
-    resumable.forEach((item) => handleTogglePause(item.id));
-
-    if (resumable.length > 0) {
-      addToast(
-        'Batch Action',
-        `Resuming ${resumable.length} selected transfer(s)`,
-        'info'
-      );
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => torrentEngine.pauseTorrent(id));
+    } else if (selectedId) {
+      torrentEngine.pauseTorrent(selectedId);
     }
   };
 
-  const handleDeleteSelected = async () => {
-    const items = downloads.filter((item) => selectedIdSet.has(item.id));
-    if (items.length === 0) return;
-
-    const removableIds: string[] = [];
-    for (const item of items) {
-      if (await handleDelete(item.id)) {
-        removableIds.push(item.id);
-      }
-    }
-
-    setSelectedIds((previous) =>
-      previous.filter((id) => !removableIds.includes(id))
-    );
-  };
-
-  const createAndStartDownload = (data: NewDownloadData) => {
-    const isTorrent = data.isTorrent || data.fileType === 'torrent';
-    const connectionCount = isTorrent ? data.connections : 16;
-
-    const newItem: DownloadItem = {
-      id: `dl-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: data.name,
-      url: data.url,
-      size: data.size,
-      downloaded: 0,
-      speed: 0,
-      status: data.startImmediately ? 'downloading' : 'queued',
-      fileType: data.fileType,
-      category: data.category,
-      savePath: data.savePath,
-      addedAt: new Date().toISOString(),
-      connections: connectionCount,
-      activeConnections: isTorrent ? connectionCount : 1,
-      chunks: Array.from(
-        { length: Math.max(1, Math.min(16, connectionCount || 1)) },
-        (_, index) => ({
-          id: index,
-          progress: 0,
-          status: data.startImmediately ? 'downloading' : 'idle',
-        })
-      ),
-      hash: Math.random().toString(16).slice(2, 22),
-      serverIp: isTorrent ? 'P2P Swarm' : undefined,
-      speedHistory: [],
-      isTorrent,
-      engine: data.engine || (isTorrent ? 'librqbit' : 'http'),
-      stealthConfig: data.stealthConfig,
-      torrentFiles: data.torrentFiles,
-      torrentIsMultiFile: isTorrent && (data.torrentFiles?.length ?? 0) > 1,
-      torrentSubfolder:
-        isTorrent && (data.torrentFiles?.length ?? 0) > 1
-          ? data.name
-          : undefined,
-    };
-
-    setDownloads((previous) => [newItem, ...previous]);
-    addToast(
-      isTorrent ? 'librqbit Torrent Added' : 'Transfer Added',
-      data.name,
-      'success'
-    );
-
-    if (data.startImmediately) {
-      void startTransfer(newItem);
+  const handleDeleteSelected = () => {
+    if (selectedIds.length > 0) {
+      selectedIds.forEach((id) => torrentEngine.deleteTorrent(id));
+      setSelectedIds([]);
+      setSelectedId(null);
+    } else if (selectedId) {
+      torrentEngine.deleteTorrent(selectedId);
+      setSelectedId(null);
     }
   };
 
-  const handleAddDownload = (data: NewDownloadData) => {
-    void resolveDownloadPath(data.savePath)
-      .then((actualPath) => {
-        const normalizedData = { ...data, savePath: actualPath };
-        const knownDirectory = existingDirectories.some((directory) => directory === actualPath || directory === data.savePath);
-        if (!knownDirectory) {
-          setPendingDownloadData(normalizedData);
-          return;
-        }
-        createAndStartDownload(normalizedData);
-      })
-      .catch(() => {
-        setPendingDownloadData(data);
-      });
+  const handleSelectAll = () => {
+    const allIds = filteredTorrents.map((t) => t.id);
+    setSelectedIds(allIds);
+    setSelectedId(allIds[0] || null);
   };
 
-  const handleConfirmPendingDirectory = async (path: string) => {
+  const handleMoveUp = () => {
+    const targetId = primaryId;
+    if (!targetId) return;
+    torrentEngine.moveTorrent(targetId, 'up');
+  };
+
+  const handleMoveDown = () => {
+    const targetId = primaryId;
+    if (!targetId) return;
+    torrentEngine.moveTorrent(targetId, 'down');
+  };
+
+  const handleToggleLibqrbitGlobal = () => {
+    const nextState = !libqrbitConfig.enabled;
+    torrentEngine.updateLibqrbitConfig({ enabled: nextState });
+    torrentEngine.addLog(
+      'LIBQRBIT',
+      `libqrbit stealth multi-path subsystem ${nextState ? 'ENGAGED (Bypassing ISP restrictions)' : 'DISARMED (Traffic unmasked)'}.`
+    );
+  };
+
+  const handleTriggerPortHop = async () => {
+    const rpcRes = await apiClient.randomizeStealthPortRpc();
+    const newPort =
+      rpcRes?.port && rpcRes.port > 0
+        ? rpcRes.port
+        : Math.floor(49152 + Math.random() * (65535 - 49152));
+    torrentEngine.updateLibqrbitConfig({ currentStealthPort: newPort });
+    torrentEngine.addLog(
+      'SECURITY',
+      `Dynamic Port Hopping: Bound ephemeral UDP/TCP socket on Port ${newPort}.`
+    );
+  };
+
+  // Handle applying optimal evasion profile from analyzer
+  const handleApplyOptimalEvasion = (optimal: {
+    dpiProfile: LibqrbitConfig['dpiEvasionProfile'];
+    obfuscationLevel: ObfuscationLevel;
+    shards: number;
+    jitterMs: number;
+    decoyProtocol: 'QUIC/TLS1.3' | 'DoH-Jitter' | 'WebRTC-Stream' | 'HTTP3-Echo';
+    port: number;
+  }) => {
+    torrentEngine.updateLibqrbitConfig({
+      enabled: true,
+      dpiEvasionProfile: optimal.dpiProfile,
+      currentStealthPort: optimal.port,
+      packetPaddingJitterMs: optimal.jitterMs,
+      aggressivePacketMorph: true,
+      multiPathFragmentation: true,
+      decoyEchoTunnel: true,
+      dohResolver: 'cloudflare',
+    });
+    torrentEngine.setHttpSettings({ dohResolver: 'cloudflare' });
+    void apiClient.setStealthRpc(true);
+
+    // Update all active torrents with the new optimal evasion level & decoy protocol
+    const allTorrents = torrentEngine.getTorrents();
+    allTorrents.forEach((t) => {
+      torrentEngine.setTorrentObfuscationLevel(t.id, optimal.obfuscationLevel);
+    });
+
+    torrentEngine.addLog(
+      'LIBQRBIT',
+      `[Optimizer] Applied MSE/PE + DoH evasion: Level ${optimal.obfuscationLevel} [${optimal.decoyProtocol}] with ${optimal.shards} multi-path shards on Port ${optimal.port}.`
+    );
+  };
+
+  const handleMinimizeToTray = async () => {
+    setIsClosePromptOpen(false);
+    torrentEngine.addLog('INFO', 'FlowDown minimized to system tray.');
     try {
-      const actualPath = await createDownloadDirectory(path);
-      handleAddDirectory(path);
-      await logger.log(`Created download directory: ${actualPath}`);
-      addToast('Directory Created', `Created ${actualPath}`, 'success');
-
-      if (pendingDownloadData) {
-        createAndStartDownload({ ...pendingDownloadData, savePath: actualPath });
-        setPendingDownloadData(null);
-      }
-    } catch (error) {
-      await logger.error(`Failed to create download directory: ${path}`, error);
-      addToast(
-        'Directory Creation Failed',
-        error instanceof Error ? error.message : String(error),
-        'error'
-      );
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().minimize();
+    } catch {
+      // browser fallback
     }
   };
 
+  const handleExitApplication = async () => {
+    setIsClosePromptOpen(false);
+    torrentEngine.pauseAll();
+    torrentEngine.addLog('INFO', 'All transfers paused. Application session ended.');
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().close();
+    } catch {
+      window.close();
+    }
+  };
 
   return (
-    <div 
-      onDragOver={handleWindowDragOver}
-      onDrop={handleWindowDrop}
-      className="h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans antialiased flex flex-col select-none transition-colors duration-200"
+    <div
+      data-os={osStyle}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`w-screen h-screen flex flex-col overflow-hidden select-none bg-[var(--os-bg-window)] text-[var(--os-text)] font-sans ${
+        theme === 'dark' ? 'dark' : ''
+      }`}
     >
-      <Header
-        theme={theme}
-        onToggleTheme={toggleTheme}
-        totalSpeed={totalActiveSpeed}
-        activeCount={activeCount}
-        totalDownloadedToday={totalDownloadedToday}
-        onOpenAddModal={() => setIsAddModalOpen(true)}
-        onPauseAll={handlePauseAll}
-        onResumeAll={handleResumeAll}
-        onClearCompleted={handleClearCompleted}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenAbout={() => setIsAboutOpen(true)}
-        onOpenUpdates={() => void handleCheckForUpdates(true)}
-        hasUpdateAvailable={Boolean(appUpdateInfo?.available)}
-        globalSpeedLimit={settings.globalSpeedLimit}
-        onSetGlobalSpeedLimit={(limit) =>
-          setSettings((current) => ({ ...current, globalSpeedLimit: limit }))
-        }
-        isStealthActive={
-          Boolean(
-            settings.stealthEnabled && settings.protocolEncryptionRequired
-          )
-        }
-      />
-
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          selectedFileType={selectedFileType}
-          setSelectedFileType={setSelectedFileType}
-          counts={counts}
-          totalDownloadedBytes={totalDownloadedToday}
-          isEncryptionActive={Boolean(
-            settings.stealthEnabled && settings.protocolEncryptionRequired
-          )}
-        />
-
-        <main className="flex-1 flex flex-col p-4 lg:p-6 overflow-y-auto space-y-4 bg-slate-100 dark:bg-slate-950">
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-3.5 rounded-2xl shadow-xs">
-            <div className="relative flex-1 min-w-[240px]">
-              <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-slate-400 dark:text-slate-500" />
-              <input
-                type="text"
-                placeholder="Search transfers, magnet links, or URLs..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 rounded-xl pl-10 pr-3.5 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none transition-all"
-              />
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={handleSelectAll}
-                className="h-8 flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3 rounded-xl text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
-                title="Select or deselect all items"
-              >
-                {selectedIds.length > 0 &&
-                selectedIds.length === filteredDownloads.length ? (
-                  <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
-                ) : (
-                  <Square className="h-3.5 w-3.5 text-slate-400" />
-                )}
-                <span className="font-semibold text-[11px]">
-                  Select All ({filteredDownloads.length})
-                </span>
-              </button>
-
-              <div className="h-8 flex items-center space-x-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 px-3.5 rounded-xl text-xs">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
-                <span className="text-slate-400 dark:text-slate-500 font-medium text-[11px]">
-                  Sort:
-                </span>
-                <select
-                  value={sortBy}
-                  onChange={(event) =>
-                    setSortBy(
-                      event.target.value as
-                        | 'addedAt'
-                        | 'name'
-                        | 'size'
-                        | 'speed'
-                        | 'progress'
-                    )
-                  }
-                  className="bg-transparent text-slate-800 dark:text-slate-100 font-semibold focus:outline-none cursor-pointer"
-                >
-                  <option value="addedAt">Date Added</option>
-                  <option value="name">File Name</option>
-                  <option value="size">File Size</option>
-                  <option value="speed">Transfer Speed</option>
-                  <option value="progress">Progress %</option>
-                </select>
-              </div>
-
-              <button
-                onClick={() =>
-                  setSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'))
-                }
-                className="p-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors"
-                title={`Sort ${sortOrder === 'asc' ? 'Ascending' : 'Descending'}`}
-              >
-                <ArrowUpDown className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-
-          {selectedIds.length > 0 && (
-            <div className="sticky top-0 z-30 bg-blue-600 text-white p-3 px-4 rounded-2xl shadow-xl flex flex-wrap items-center justify-between gap-3 border border-blue-500">
-              <button
-                onClick={handleSelectAll}
-                className="flex items-center space-x-2 text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl transition-colors"
-              >
-                <CheckSquare className="h-4 w-4" />
-                <span>
-                  {selectedIds.length} of {filteredDownloads.length} Selected
-                </span>
-              </button>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleResumeSelected}
-                  className="flex items-center space-x-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  <span>Resume</span>
-                </button>
-                <button
-                  onClick={handlePauseSelected}
-                  className="flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl"
-                >
-                  <Pause className="h-3.5 w-3.5" />
-                  <span>Pause</span>
-                </button>
-                <button
-                  onClick={handleDeleteSelected}
-                  className="flex items-center space-x-1.5 bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs px-3.5 py-1.5 rounded-xl"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  <span>Delete</span>
-                </button>
-                <button
-                  onClick={() => setSelectedIds([])}
-                  className="p-1.5 hover:bg-white/20 rounded-lg"
-                  title="Clear selection"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex-1 space-y-3 relative min-h-[300px]">
-            {filteredDownloads.length > 0 ? (
-              filteredDownloads.map((item) => (
-                <DownloadItemRow
-                  key={item.id}
-                  item={item}
-                  isSelected={selectedIdSet.has(item.id)}
-                  onToggleSelect={handleToggleSelect}
-                  onTogglePause={handleTogglePause}
-                  onDelete={handleDelete}
-                  onInspect={setInspectingItem}
-                  onOpenLocation={async (download) => {
-                    const actualPath = await resolveDownloadPath(download.savePath);
-                    const isTorrent =
-                      download.isTorrent ||
-                      download.engine === 'librqbit' ||
-                      download.fileType === 'torrent';
-                    const targetDirectory =
-                      isTorrent && download.torrentIsMultiFile
-                        ? await joinPathNative(
-                            actualPath,
-                            download.torrentSubfolder || download.name
-                          )
-                        : actualPath;
-
-                    const result = await openDirectoryNative(targetDirectory);
-                    if (!result.success) {
-                      addToast(
-                        'Could Not Open Folder',
-                        `Unable to open ${targetDirectory}`,
-                        'error'
-                      );
-                    }
-                  }}
-                  onOpenFile={async (download) => {
-                    const actualPath = await resolveDownloadPath(download.savePath);
-                    const isTorrent =
-                      download.isTorrent ||
-                      download.engine === 'librqbit' ||
-                      download.fileType === 'torrent';
-
-                    let targetPath = await joinPathNative(actualPath, download.name);
-
-                    if (isTorrent && download.torrentIsMultiFile) {
-                      targetPath = await joinPathNative(
-                        actualPath,
-                        download.torrentSubfolder || download.name
-                      );
-                    }
-
-                    const result = await openPathNative(targetPath);
-                    if (!result.success) {
-                      addToast(
-                        'Could Not Launch File',
-                        `Unable to open ${download.name}`,
-                        'error'
-                      );
-                    }
-                  }}
-                  onContextMenu={(event, download) => {
-                    event.preventDefault();
-                    setContextMenu({
-                      item: download,
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }}
-                  onNotCompletedDoubleClick={(download) => {
-                    const percent =
-                      download.size > 0
-                        ? Math.min(
-                            100,
-                            Math.floor(
-                              (download.downloaded / download.size) * 100
-                            )
-                          )
-                        : 0;
-                    addToast(
-                      'File Still Downloading',
-                      `"${download.name}" is currently at ${percent}% progress.`,
-                      'info'
-                    );
-                  }}
-                />
-              ))
-            ) : (
-              <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 text-center space-y-3 flex flex-col items-center justify-center mb-8 shadow-xs ${selectedIds.length > 0 ? 'mt-16' : 'mt-2'}`}>
-                <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl text-slate-400 dark:text-slate-500">
-                  <Download className="h-8 w-8" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                    No transfers found
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm">
-                    {searchQuery
-                      ? 'No items match your search query. Try clearing the filter.'
-                      : 'There are no files in this category. Click “New Transfer” to start downloading.'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsAddModalOpen(true)}
-                  className="mt-2 flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-4 py-2.5 rounded-full"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add First Transfer</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
-
-      <React.Suspense fallback={null}>
-        <AddDownloadModal
-          isOpen={isAddModalOpen}
-          initialUrl={externalTransferSource}
-          onClose={() => {
-            setIsAddModalOpen(false);
-            setExternalTransferSource(undefined);
-          }}
-          defaultSavePath={settings.defaultSavePath}
-          onToast={addToast}
-          onAdd={handleAddDownload}
-        />
-
-        {pendingDownloadData && (
-          <DirectoryPromptModal
-            isOpen={true}
-            directoryPath={pendingDownloadData.savePath}
-            onConfirm={handleConfirmPendingDirectory}
-            onCancel={() => {
-              addToast(
-                'Transfer Cancelled',
-                'Save directory was not created',
-                'info'
-              );
-              setPendingDownloadData(null);
+      {/* 1. Classic Qt Menu Bar */}
+      <QtMenuBar
+        onOpenAddTorrent={() => setIsAddTorrentOpen(true)}
+        onOpenAddUrl={() => setIsAddUrlOpen(true)}
+        onOpenCreateTorrent={() => setIsTorrentCreatorOpen(true)}
+        onOpenLibqrbitSettings={() => setIsLibqrbitSettingsOpen(true)}
+        onOpenScheduler={() => setIsSchedulerOpen(true)}
+            onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
+            onOpenAnalyzer={(tab) => handleOpenAnalyzer(tab)}
+            onOpenAbout={() => setIsAboutOpen(true)}
+            onPauseAll={() => torrentEngine.pauseAll()}
+            onResumeAll={() => torrentEngine.resumeAll()}
+            onOpenDownloadInfo={() => {
+              if (primaryId) setDownloadInfoTorrentId(primaryId);
             }}
+            hasSelectedTorrent={!!primaryId}
+            onToggleTurtle={() => torrentEngine.toggleTurtleMode()}
+            onToggleLibqrbit={handleToggleLibqrbitGlobal}
+            onToggleTheme={toggleTheme}
+            theme={theme}
+            libqrbitActive={libqrbitConfig.enabled}
+            turtleActive={bandwidthLimits.altSpeedActive}
+            osStyle={osStyle}
+            onExit={() => setIsClosePromptOpen(true)}
+            onSelectAll={handleSelectAll}
+            showSidebar={showSidebar}
+            onToggleSidebar={() => setShowSidebar((s) => !s)}
+            showDetailTabs={showDetailTabs}
+            onToggleDetailTabs={() => setShowDetailTabs((s) => !s)}
+            showStatusBar={showStatusBar}
+            onToggleStatusBar={() => setShowStatusBar((s) => !s)}
           />
+
+          {/* 3. Qt Desktop Action Toolbar */}
+          <QtToolBar
+            onOpenAddTorrent={() => setIsAddTorrentOpen(true)}
+            onOpenAddUrl={() => setIsAddUrlOpen(true)}
+            onResumeSelected={handleResumeSelected}
+            onStopSelected={handleStopSelected}
+            onPauseSelected={handlePauseSelected}
+            onDeleteSelected={handleDeleteSelected}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+            onToggleTurtle={() => torrentEngine.toggleTurtleMode()}
+            onSetTurtle={(active) => torrentEngine.setTurtleMode(active)}
+            turtleActive={bandwidthLimits.altSpeedActive}
+            onToggleLibqrbit={handleToggleLibqrbitGlobal}
+            onSetLibqrbit={(active) => torrentEngine.setLibqrbitEnabled(active)}
+            libqrbitActive={libqrbitConfig.enabled}
+            onOpenSettings={() => setIsLibqrbitSettingsOpen(true)}
+            searchFilter={searchFilter}
+            onSearchChange={setSearchFilter}
+            selectedCount={selectedIds.length}
+            selectedIsDownloading={selectedIsDownloading}
+            altDownloadLimitKbps={bandwidthLimits.altDownloadLimit}
+          />
+
+      {/* 4. Main Work Area: Resizable Left Sidebar + Resizable Bottom Detail Pane */}
+      <div className={`flex-1 flex overflow-hidden ${isDraggingSidebar || isDraggingDetail ? 'select-none' : ''}`}>
+        {/* Left Category / Status Tree Sidebar */}
+        {showSidebar && (
+          <>
+            <QtCategorySidebar
+              width={sidebarWidth}
+              torrents={torrents}
+              selectedCategory={selectedCategory}
+              onSelectCategory={setSelectedCategory}
+              selectedStatus={selectedStatus}
+              onSelectStatus={setSelectedStatus}
+              selectedTag={selectedTag}
+              onSelectTag={setSelectedTag}
+            />
+
+            {/* Left Sidebar Interactive Vertical Splitter */}
+            <div
+              onMouseDown={handleSidebarMouseDown}
+              onDoubleClick={() => setSidebarWidth(210)}
+              title="Drag to resize sidebar width (Double-click to reset)"
+              className={`w-1 hover:w-1.5 cursor-col-resize select-none relative z-20 group shrink-0 transition-all ${
+                isDraggingSidebar
+                  ? 'bg-[var(--os-accent)] w-1.5'
+                  : 'bg-[var(--os-border)] hover:bg-[var(--os-accent)]'
+              }`}
+            >
+              {/* Extended grab hit area */}
+              <div className="absolute inset-y-0 -left-1.5 -right-1.5 z-30" />
+            </div>
+          </>
         )}
 
-        <DownloadDetailModal
-          item={inspectingItem}
-          onClose={() => setInspectingItem(null)}
-          onSetItemSpeedLimit={(id, limit) => {
-            setDownloads((previous) =>
-              previous.map((download) =>
-                download.id === id
-                  ? { ...download, speedLimit: limit }
-                  : download
-              )
-            );
-          }}
-        />
-
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => setIsSettingsOpen(false)}
-          settings={settings}
-          onUpdateSettings={(newSettings) => {
-            setSettings((previous) => ({ ...previous, ...newSettings }));
-            if (newSettings.theme) {
-              setTheme(newSettings.theme);
-            }
-          }}
-          onCheckForUpdates={() => void handleCheckForUpdates(true)}
-          isCheckingUpdates={isCheckingUpdate}
-        />
-
-        <AboutModal
-          isOpen={isAboutOpen}
-          onClose={() => setIsAboutOpen(false)}
-        />
-
-        <ErrorBoundary fallbackTitle="Software Updates Error" onReset={() => setIsUpdateModalOpen(false)}>
-          <UpdateModal
-            isOpen={isUpdateModalOpen}
-            onClose={() => setIsUpdateModalOpen(false)}
-            updateInfo={appUpdateInfo}
-            onCheckAgain={() => handleCheckForUpdates(true)}
-            isChecking={isCheckingUpdate}
-          />
-        </ErrorBoundary>
-      </React.Suspense>
-
-      {contextMenu && (
-        <div
-          className="fixed inset-0 z-50"
-          onClick={() => setContextMenu(null)}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            setContextMenu(null);
-          }}
-        >
-          <div
-            className="absolute bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl py-1.5 min-w-[210px] z-50 text-slate-800 dark:text-slate-100"
-            style={{
-              top: Math.min(contextMenu.y, window.innerHeight - 260),
-              left: Math.min(contextMenu.x, window.innerWidth - 230),
+        {/* Right Area: Top Transfer Table + Horizontal Splitter + Bottom Detail Pane */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {/* Transfer Table with Draggable Marquee Selection */}
+          <QtTransferTable
+            torrents={filteredTorrents}
+            selectedId={selectedId}
+            selectedIds={selectedIds}
+            onSelectTorrent={(id) => {
+              setSelectedId(id);
+              setSelectedIds([id]);
             }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 mb-1">
-              <p className="text-[11px] font-bold text-slate-400 truncate max-w-[200px]">
-                {contextMenu.item.name}
-              </p>
-            </div>
+            onSelectTorrents={(ids, primary) => {
+              setSelectedIds(ids);
+              setSelectedId(primary ?? (ids.length > 0 ? ids[0] : null));
+            }}
+            onResume={(id) => torrentEngine.resumeTorrent(id)}
+            onStop={(id) => torrentEngine.stopTorrent(id)}
+            onPause={(id) => torrentEngine.pauseTorrent(id)}
+            onDelete={(id) => torrentEngine.deleteTorrent(id)}
+            onDeleteSelected={handleDeleteSelected}
+            onForceRecheck={(id) => {
+              const target = torrents.find((t) => t.id === id);
+              torrentEngine.forceRecheck(id);
+              showToast('Force Recheck Started', target ? `Verifying SHA-1 pieces for ${target.name}` : 'Verifying piece hashes on disk...');
+            }}
+            onSetPriority={(id, p) => torrentEngine.setPriority(id, p)}
+            onSetHealthMode={(id, m) => torrentEngine.setHealthPriorityMode(id, m)}
+            onToggleLibqrbit={(id) => torrentEngine.toggleTorrentLibqrbit(id)}
+            onSetObfuscation={(id, lvl) => torrentEngine.setTorrentObfuscationLevel(id, lvl)}
+            onOpenDownloadInfo={(id) => setDownloadInfoTorrentId(id)}
+            onOpenFolder={handleOpenFolder}
+            onOpenItem={handleOpenItem}
+            onRequestRename={(id) => setRenameTorrentId(id)}
+            onCopyName={handleCopyName}
+            onCopyInfoHash={handleCopyInfoHash}
+            onCopyMagnet={handleCopyMagnet}
+            compactDensity={Boolean(systemSettingsState.compactDensity)}
+          />
 
-            <button
-              onClick={() => {
-                const item = contextMenu.item;
-                setContextMenu(null);
-                if (item.status === 'completed') {
-                  void (async () => {
-                    const actualPath = await resolveDownloadPath(item.savePath);
-                    const isTorrent =
-                      item.isTorrent ||
-                      item.engine === 'librqbit' ||
-                      item.fileType === 'torrent';
-                    let targetPath = await joinPathNative(actualPath, item.name);
-                    if (isTorrent && item.torrentIsMultiFile) {
-                      targetPath = await joinPathNative(
-                        actualPath,
-                        item.torrentSubfolder || item.name
-                      );
-                    }
-                    const result = await openPathNative(targetPath);
-                    if (!result.success) {
-                      addToast(
-                        'Could Not Launch File',
-                        `Unable to open ${item.name}`,
-                        'error'
-                      );
-                    }
-                  })();
-                } else {
-                  const percent =
-                    item.size > 0
-                      ? Math.floor((item.downloaded / item.size) * 100)
-                      : 0;
-                  addToast(
-                    'File In Progress',
-                    `"${item.name}" is still downloading (${percent}%).`,
-                    'info'
-                  );
-                }
-              }}
-              className="w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:text-blue-600 dark:hover:text-blue-400 flex items-center space-x-2.5"
-            >
-              <FolderOpen className="h-4 w-4 text-blue-500" />
-              <span>
-                {contextMenu.item.status === 'completed'
-                  ? 'Open Completed File'
-                  : 'Open File Directory'}
-              </span>
-            </button>
+          {/* Bottom Detail Pane Interactive Horizontal Splitter & Tabs */}
+          {showDetailTabs && (
+            <>
+              <div
+                onMouseDown={handleDetailMouseDown}
+                onDoubleClick={() => setDetailHeight(detailHeight > 40 ? 36 : 200)}
+                title="Drag to resize detail pane height (Double-click to toggle collapse)"
+                className={`h-1.5 hover:h-2 cursor-row-resize select-none relative z-20 group shrink-0 flex items-center justify-center transition-all ${
+                  isDraggingDetail
+                    ? 'bg-[var(--os-accent)] h-2'
+                    : 'bg-[var(--os-border)] hover:bg-[var(--os-accent)]'
+                }`}
+              >
+                {/* Extended grab hit area */}
+                <div className="absolute -top-1.5 -bottom-1.5 inset-x-0 z-30" />
+                {/* Visual grab handle dots indicator */}
+                <div className="flex gap-1 items-center opacity-50 group-hover:opacity-100 transition-opacity">
+                  <span className="w-1 h-1 rounded-full bg-[var(--os-text-muted)]" />
+                  <span className="w-1 h-1 rounded-full bg-[var(--os-text-muted)]" />
+                  <span className="w-1 h-1 rounded-full bg-[var(--os-text-muted)]" />
+                </div>
+              </div>
 
-            <button
-              onClick={() => {
-                const id = contextMenu.item.id;
-                setContextMenu(null);
-                handleTogglePause(id);
-              }}
-              className="w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2.5"
-            >
-              {contextMenu.item.status === 'paused' ? (
-                <>
-                  <Play className="h-4 w-4 text-emerald-500" />
-                  <span>Resume Transfer</span>
-                </>
-              ) : (
-                <>
-                  <Pause className="h-4 w-4 text-amber-500" />
-                  <span>Pause Transfer</span>
-                </>
-              )}
-            </button>
+              {/* Split Bottom Detail Tabs (General, Trackers, Peers, Pieces, Speed Graph, libqrbit Lab, Logs) */}
+              <QtDetailTabs
+                height={detailHeight}
+                torrent={selectedTorrent}
+                speedHistory={speedHistory}
+                logs={logs}
+                theme={theme}
+                stealthPort={libqrbitConfig.currentStealthPort}
+                stealthEnabled={libqrbitConfig.enabled}
+                onTriggerPortHop={handleTriggerPortHop}
+                onOpenDiagnostic={() => setIsDiagnosticOpen(true)}
+                onOpenAnalyzer={() => handleOpenAnalyzer('p2p')}
+              />
+            </>
+          )}
+        </div>
+      </div>
 
-            <button
-              onClick={() => {
-                const item = contextMenu.item;
-                setContextMenu(null);
-                setInspectingItem(item);
-              }}
-              className="w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2.5"
-            >
-              <Maximize2 className="h-4 w-4 text-purple-500" />
-              <span>Inspect Details</span>
-            </button>
+      {/* 5. Classic Qt Status Bar */}
+      {showStatusBar && (
+        <QtStatusBar
+          totalDownSpeed={totalDownSpeed}
+          totalUpSpeed={totalUpSpeed}
+          sessionDownloaded={sessionStats.sessionDownloaded}
+          sessionUploaded={sessionStats.sessionUploaded}
+          bandwidthLimits={bandwidthLimits}
+          libqrbitActive={libqrbitConfig.enabled}
+          stealthPort={libqrbitConfig.currentStealthPort}
+          rustConnected={rustConnected}
+          activePeersCount={torrents.reduce((acc, t) => acc + (t.status === 'paused' ? 0 : t.peersConnected + t.seedsConnected), 0)}
+          onToggleTurtle={() => torrentEngine.toggleTurtleMode()}
+          onSetGlobalLimit={(down, up) => torrentEngine.setGlobalLimits(down, up)}
+          onOpenScheduler={() => setIsSchedulerOpen(true)}
+          onOpenLibqrbitSettings={() => setIsLibqrbitSettingsOpen(true)}
+          onResetSessionStats={handleResetSessionStats}
+        />
+      )}
 
-            <button
-              onClick={() => {
-                const item = contextMenu.item;
-                setContextMenu(null);
-                void navigator.clipboard.writeText(item.url);
-                addToast('URL Copied', item.url, 'success');
-              }}
-              className="w-full text-left px-3.5 py-2 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center space-x-2.5"
-            >
-              <Copy className="h-4 w-4 text-slate-400" />
-              <span>Copy Download Link</span>
-            </button>
+      {/* Modals & Dialogs */}
+      <AddTorrentModal
+        isOpen={isAddTorrentOpen}
+        onClose={() => {
+          setIsAddTorrentOpen(false);
+          setPendingStartupTorrent(null);
+        }}
+        defaultDownloadDirectory={defaultDownloadDir}
+        initialTorrent={pendingStartupTorrent}
+        onAdd={(data) => {
+          setIsAddTorrentOpen(false);
+          setPendingStartupTorrent(null);
+          torrentEngine.addTorrent(data);
+        }}
+      />
 
-            <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+      <AddUrlModal
+        isOpen={isAddUrlOpen}
+        onClose={() => setIsAddUrlOpen(false)}
+        defaultDownloadDirectory={defaultDownloadDir}
+        onAdd={(data) => torrentEngine.addHttpUrlDownload(data)}
+      />
 
-            <button
-              onClick={() => {
-                const id = contextMenu.item.id;
-                setContextMenu(null);
-                void handleDelete(id);
-              }}
-              className="w-full text-left px-3.5 py-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 flex items-center space-x-2.5"
-            >
-              <Trash2 className="h-4 w-4 text-rose-500" />
-              <span>Delete Transfer</span>
-            </button>
-          </div>
+      <OptionsModal
+        isOpen={isLibqrbitSettingsOpen}
+        onClose={() => setIsLibqrbitSettingsOpen(false)}
+        config={libqrbitConfig}
+        limits={bandwidthLimits}
+        httpSettings={torrentEngine.getHttpSettings()}
+        theme={theme}
+        viewModePreference={viewModePreference}
+        systemSettings={systemSettingsState}
+        defaultDownloadDirectory={defaultDownloadDir}
+        onSaveDownloadDirectory={(dir, applyAll) => torrentEngine.setDefaultDownloadDirectory(dir, applyAll ?? true)}
+        onSaveConfig={(cfg) => torrentEngine.updateLibqrbitConfig(cfg)}
+        onSaveLimits={(lms) => {
+          torrentEngine.setBandwidthLimits(lms);
+        }}
+        onSaveHttpSettings={(s) => {
+          torrentEngine.setHttpSettings(s);
+        }}
+        onSaveSystemSettings={(sys) => {
+          setSystemSettingsState((prev) => ({ ...prev, ...sys }));
+        }}
+        onSetViewMode={(mode) => setViewModePreference(mode)}
+        onSetTheme={(t) => {
+          setTheme(t);
+          if (t === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+          }
+        }}
+        onOpenAnalyzer={() => {
+          setIsLibqrbitSettingsOpen(false);
+          handleOpenAnalyzer('p2p');
+        }}
+      />
+
+      <BandwidthSchedulerModal
+        isOpen={isSchedulerOpen}
+        onClose={() => setIsSchedulerOpen(false)}
+        limits={bandwidthLimits}
+        onSave={(lms) => {
+          torrentEngine.setBandwidthLimits(lms);
+        }}
+      />
+
+      {/* Network Throttling & HTTP Multi-Part Analyzer Modal */}
+      <AnalyzerModal
+        isOpen={isAnalyzerOpen}
+        onClose={() => setIsAnalyzerOpen(false)}
+        currentConfig={libqrbitConfig}
+        onApplyOptimal={handleApplyOptimalEvasion}
+        onApplyHttpOptimal={(segments, multiPath) => {
+          torrentEngine.applyHttpOptimalSettings(segments, multiPath);
+        }}
+        initialTab={analyzerInitialTab}
+      />
+
+      <DiagnosticModal
+        isOpen={isDiagnosticOpen}
+        onClose={() => setIsDiagnosticOpen(false)}
+        onApplyEvasion={(measured) => {
+          const validProfile = (
+            measured?.profileName === 'Government Firewall' ||
+            measured?.profileName === 'Strict Campus/Dorm' ||
+            measured?.profileName === 'ISP Deep Inspection'
+              ? measured.profileName
+              : 'ISP Deep Inspection'
+          ) as LibqrbitConfig['dpiEvasionProfile'];
+          const nextPort = measured?.port || libqrbitConfig.currentStealthPort || 52841;
+          torrentEngine.updateLibqrbitConfig({
+            enabled: true,
+            aggressivePacketMorph: true,
+            multiPathFragmentation: true,
+            decoyEchoTunnel: true,
+            dpiEvasionProfile: validProfile,
+            currentStealthPort: nextPort,
+            dohResolver: 'cloudflare',
+          });
+          torrentEngine.setHttpSettings({ dohResolver: 'cloudflare' });
+          void apiClient.setStealthRpc(true);
+          if (measured?.recommendedSegments) {
+            torrentEngine.applyHttpOptimalSettings(measured.recommendedSegments, true);
+          }
+          const allTorrents = torrentEngine.getTorrents();
+          allTorrents.forEach((t) => {
+            torrentEngine.setTorrentObfuscationLevel(t.id, 3);
+          });
+          torrentEngine.addLog(
+            'LIBQRBIT',
+            `Enforced MSE/PE 768-bit DH + RC4 shield (${(measured?.mseEntropyBits ?? 7.42).toFixed(2)} bits/B), Cloudflare DoH, Port ${nextPort}, and ${measured?.recommendedSegments ?? 8}x HTTP segments.`
+          );
+          showToast(
+            'libqrbit Automated Bypass Active',
+            `Port ${nextPort} • MSE/PE RC4 • Cloudflare DoH • ${measured?.recommendedSegments ?? 8}x Segments`
+          );
+        }}
+      />
+
+      <TorrentCreatorModal
+        isOpen={isTorrentCreatorOpen}
+        onClose={() => setIsTorrentCreatorOpen(false)}
+        onCreated={(name, size) => {
+          torrentEngine.addTorrent({
+            name: `${name}.mkv`,
+            size,
+            category: 'Media',
+            priority: 'Normal',
+            libqrbitEnabled: true,
+            obfuscationLevel: 3,
+            savePath: defaultDownloadDir,
+          });
+        }}
+      />
+
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
+
+      <DownloadInfoModal
+        isOpen={!!downloadInfoTorrentId}
+        torrent={downloadInfoTorrent}
+        onClose={() => setDownloadInfoTorrentId(null)}
+        onResume={(id) => torrentEngine.resumeTorrent(id)}
+        onPause={(id) => torrentEngine.pauseTorrent(id)}
+        onMinimize={() => setDownloadInfoTorrentId(null)}
+        onCancel={(id) => {
+          torrentEngine.deleteTorrent(id);
+          setDownloadInfoTorrentId(null);
+        }}
+        onSetSpeedLimit={(id, limitKb) => {
+          torrentEngine.setTransferSpeedLimit(id, limitKb);
+        }}
+        onSaveCompletionOptions={(id, opts) => {
+          torrentEngine.setCompletionOptions(id, opts);
+        }}
+      />
+
+      <RenameTransferModal
+        isOpen={!!renameTorrentId}
+        torrent={renameTorrentTarget}
+        onClose={() => setRenameTorrentId(null)}
+        onRename={(id, newName) => {
+          torrentEngine.renameTorrent(id, newName);
+          showToast('Transfer Renamed', newName);
+        }}
+      />
+
+      {toast && (
+        <div className="fixed bottom-8 right-4 z-50 max-w-sm bg-[var(--os-bg-content)] border border-[var(--os-accent)] rounded shadow-2xl px-3 py-2 text-xs text-[var(--os-text)] animate-in fade-in slide-in-from-bottom-2 duration-150 pointer-events-auto">
+          <div className="font-semibold text-[11px] text-[var(--os-accent)]">{toast.title}</div>
+          <div className="font-mono text-[10px] text-[var(--os-text-muted)] truncate mt-0.5">{toast.detail}</div>
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      {/* Qt Native OS Close Confirmation Dialog */}
+      {isClosePromptOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 select-none">
+          <div className={`w-full max-w-md bg-[var(--os-bg-window)] border border-[var(--os-border)] shadow-2xl overflow-hidden text-[var(--os-text)] text-xs font-sans flex flex-col ${
+            osStyle === 'macos' ? 'rounded-2xl' : osStyle === 'windows' ? 'rounded-lg' : 'rounded-md'
+          }`}>
+            {/* Title bar */}
+            <SubwindowHeader
+              onClose={() => setIsClosePromptOpen(false)}
+              title="Exit FlowDown"
+              osStyle={osStyle}
+            />
+
+            <div className="p-4 space-y-3">
+              <p className="text-sm font-medium text-[var(--os-text)]">
+                Are you sure you want to exit FlowDown?
+              </p>
+              <p className="text-[var(--os-text-muted)] text-xs leading-relaxed">
+                Active BitTorrent downloads and libqrbit anti-throttling shields will pause if the process is terminated. You can minimize to the system tray to let background transfers continue.
+              </p>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-end">
+                <button
+                  onClick={() => setIsClosePromptOpen(false)}
+                  className="px-3 py-1.5 rounded bg-[var(--os-bg-control)] hover:bg-[var(--os-bg-hover)] border border-[var(--os-border)] text-[var(--os-text)] text-xs font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleMinimizeToTray}
+                  className="px-3 py-1.5 rounded bg-[var(--os-accent)] hover:bg-[var(--os-accent-hover)] text-white text-xs font-semibold shadow-2xs"
+                >
+                  Minimize to Tray
+                </button>
+                <button
+                  onClick={handleExitApplication}
+                  className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-2xs"
+                >
+                  Exit Application
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

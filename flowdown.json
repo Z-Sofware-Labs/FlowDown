@@ -1,0 +1,62 @@
+{
+  "download_directory": "C:\\Users\\Alvin\\Downloads",
+  "socket_path": "\\\\.\\pipe\\flowdownd",
+  "bind_rpc_port": 52840,
+  "bandwidth": {
+    "global_download_limit_kbps": 0,
+    "global_upload_limit_kbps": 5120,
+    "alt_speed_active": false,
+    "alt_download_limit_kbps": 2048,
+    "alt_upload_limit_kbps": 512,
+    "dht_enabled": true,
+    "pex_enabled": true,
+    "lsd_enabled": true,
+    "utp_enabled": true,
+    "encryption_requirement": "prefer",
+    "max_total_connections": 500,
+    "max_connections_per_torrent": 100,
+    "half_open_connections": 50,
+    "upload_slots_per_torrent": 8
+  },
+  "libqrbit": {
+    "enabled": true,
+    "auto_detect_throttling": true,
+    "aggressive_packet_morph": true,
+    "multi_path_fragmentation": true,
+    "decoy_echo_tunnel": true,
+    "port_hopping": true,
+    "random_port_on_startup": false,
+    "stealth_port_min": 49152,
+    "stealth_port_max": 65535,
+    "current_stealth_port": 52841,
+    "dpi_evasion_profile": "ISP Deep Inspection",
+    "fec_overhead_ratio": 0.04,
+    "packet_padding_jitter_ms": 14
+  },
+  "http": {
+    "default_segments": 8,
+    "max_concurrent_files": 5,
+    "buffer_size": "1MB",
+    "timeout_seconds": 15,
+    "max_retries": 5,
+    "user_agent": "Chrome",
+    "custom_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FlowDown/2.0 (RustCore)",
+    "referer_mode": "same_origin",
+    "custom_referer": "",
+    "doh_resolver": "cloudflare",
+    "tcp_window_scaling": true,
+    "keep_alive": true,
+    "http2_multiplex": true,
+    "auto_resume_broken": true,
+    "dynamic_chunking": true
+  },
+  "system": {
+    "theme_mode": "dark",
+    "auto_subfolders": true,
+    "associate_torrents": true,
+    "associate_magnets": true,
+    "start_on_boot": false,
+    "minimize_to_tray": true,
+    "auto_check_updates": true
+  }
+}
