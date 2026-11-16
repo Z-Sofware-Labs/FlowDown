@@ -67,7 +67,7 @@ pub struct HttpDownloadOptions {
 impl Default for HttpDownloadOptions {
     fn default() -> Self {
         Self {
-            user_agent: "FlowDown/2.0.5 (RustCore)".to_string(),
+            user_agent: "FlowDown/2.0.6 (RustCore)".to_string(),
             referer: None,
             timeout_seconds: 15,
             max_retries: 5,
@@ -312,7 +312,7 @@ impl HttpDownloader {
         &self,
         url: &str,
     ) -> Result<HttpProbeResult, Box<dyn std::error::Error + Send + Sync>> {
-        self.probe_with_ua(url, "FlowDown/2.0.5 (RustCore)").await
+        self.probe_with_ua(url, "FlowDown/2.0.6 (RustCore)").await
     }
 
     pub async fn probe_with_ua(

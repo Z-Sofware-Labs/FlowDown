@@ -502,7 +502,7 @@ pub async fn resolve_host_doh(host: &str, port: u16) -> Result<Vec<SocketAddr>, 
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(2500))
-        .user_agent("FlowDown/2.0.5")
+        .user_agent("FlowDown/2.0.6")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -759,7 +759,7 @@ impl LibqrbitEngine {
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
-            .user_agent("FlowDown/2.0.5")
+            .user_agent("FlowDown/2.0.6")
             .build()
             .unwrap_or_default();
 
