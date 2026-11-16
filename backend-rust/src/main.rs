@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     info!("========================================================");
-    info!(" FlowDown Daemon (flowdownd v2.0.1) - Pure Rust Core");
+    info!(" FlowDown Daemon (flowdownd v2.0.2) - Pure Rust Core");
     info!(" Architecture: Qt 6 / Bridge GUI <-> Rust Daemon (JSON-RPC 2.0)");
     info!("========================================================");
 

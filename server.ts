@@ -248,7 +248,7 @@ async function startServer() {
           result: {
             daemon: 'flowdownd-bridge',
             app: 'FlowDown',
-            version: '2.0.1',
+            version: '2.0.2',
             protocol: 'jsonrpc-2.0',
             rustDaemonConnected: false,
             os: os.platform(),
@@ -881,8 +881,8 @@ async function startServer() {
 
   // 6. GET /api/system/updates/check - Real Software Updates Verification
   app.get('/api/system/updates/check', (_req: Request, res: Response) => {
-    const currentVersion = '2.0.1';
-    const latestVersion = '2.0.1';
+    const currentVersion = '2.0.2';
+    const latestVersion = '2.0.2';
     const releaseDate = '2026-11-13';
 
     res.json({

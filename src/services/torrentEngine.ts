@@ -44,7 +44,7 @@ export class TorrentEngine {
   };
   private speedHistory: SpeedHistoryPoint[] = [];
   private logs: LogEntry[] = [
-    { id: '1', timestamp: '16:50:01', type: 'INFO', message: 'FlowDown Engine v2.0.1 initialized (Qt 6 + Rust core).' },
+    { id: '1', timestamp: '16:50:01', type: 'INFO', message: 'FlowDown Engine v2.0.2 initialized (Qt 6 + Rust core).' },
     { id: '2', timestamp: '16:50:02', type: 'LIBQRBIT', message: 'libqrbit v3.4.1 runtime loaded: Multi-Path Morphing, Decoy Tunneling, UDP Hole Punching ready.' },
     { id: '3', timestamp: '16:50:04', type: 'SECURITY', message: 'DHT node discovery bound to ephemeral obfuscated port 52841.' },
     { id: '4', timestamp: '16:52:12', type: 'TORRENT', message: 'Transfer queue initialized (0 active transfers).' },

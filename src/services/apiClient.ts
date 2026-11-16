@@ -292,7 +292,7 @@ export const apiClient = {
 
   // 6. Check official software updates on-demand against GitHub Releases
   async checkForUpdates(): Promise<UpdateCheckResponse | null> {
-    const currentVersion = '2.0.1';
+    const currentVersion = '2.0.2';
     try {
       const resp = await fetch('https://api.github.com/repos/Z-Sofware-Labs/FlowDown/releases/latest', {
         headers: {
@@ -324,10 +324,10 @@ export const apiClient = {
 
         const assets = Array.isArray(data.assets)
           ? data.assets.map((a: any) => ({
-              name: String(a.name || ''),
-              downloadUrl: String(a.browser_download_url || ''),
-              size: Number(a.size || 0),
-            }))
+            name: String(a.name || ''),
+            downloadUrl: String(a.browser_download_url || ''),
+            size: Number(a.size || 0),
+          }))
           : [];
 
         return {
@@ -649,7 +649,7 @@ export const apiClient = {
     return {
       daemon: res.daemon || 'node-preview',
       app: res.app || 'FlowDown',
-      version: res.version || '2.0.1',
+      version: res.version || '2.0.2',
       rustConnected: res.daemon === 'flowdownd',
     };
   },
