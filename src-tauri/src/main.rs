@@ -747,9 +747,139 @@ async fn download_and_launch_update(
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WindowState {
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    maximized: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            width: 1280,
+            height: 720,
+            x: 100,
+            y: 100,
+            maximized: false,
+        }
+    }
+}
+
+static LAST_WINDOW_SAVE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn get_window_state_path() -> PathBuf {
+    let base = directories::ProjectDirs::from("com", "zsoftwarelabs", "FlowDown")
+        .map(|p| p.data_local_dir().to_path_buf())
+        .or_else(|| directories::BaseDirs::new().map(|b| b.data_local_dir().join("FlowDown")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let _ = std::fs::create_dir_all(&base);
+    base.join("window-state.json")
+}
+
+fn restore_window_state(win: &tauri::WebviewWindow) {
+    let path = get_window_state_path();
+    if let Ok(data) = std::fs::read_to_string(&path) {
+        if let Ok(state) = serde_json::from_str::<WindowState>(&data) {
+            let width = state.width.max(800);
+            let height = state.height.max(500);
+
+            let _ = win.set_size(tauri::Size::Physical(tauri::PhysicalSize { width, height }));
+
+            let mut is_visible = false;
+            if let Ok(monitors) = win.available_monitors() {
+                for m in monitors {
+                    let pos = m.position();
+                    let size = m.size();
+                    let min_x = pos.x;
+                    let max_x = pos.x + size.width as i32;
+                    let min_y = pos.y;
+                    let max_y = pos.y + size.height as i32;
+
+                    if state.x + 100 >= min_x && state.x <= max_x && state.y + 50 >= min_y && state.y <= max_y {
+                        is_visible = true;
+                        break;
+                    }
+                }
+            }
+
+            if is_visible {
+                let _ = win.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                    x: state.x,
+                    y: state.y,
+                }));
+            }
+
+            if state.maximized {
+                let _ = win.maximize();
+            }
+        }
+    }
+}
+
+fn save_window_state(win: &tauri::Window, force: bool) {
+    if let Ok(is_minimized) = win.is_minimized() {
+        if is_minimized {
+            return;
+        }
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    if !force {
+        let last = LAST_WINDOW_SAVE_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(last) < 250 {
+            return;
+        }
+    }
+    LAST_WINDOW_SAVE_MS.store(now, Ordering::Relaxed);
+
+    let is_max = win.is_maximized().unwrap_or(false);
+    let path = get_window_state_path();
+
+    let mut current_state = if let Ok(data) = std::fs::read_to_string(&path) {
+        serde_json::from_str::<WindowState>(&data).unwrap_or_default()
+    } else {
+        WindowState::default()
+    };
+
+    current_state.maximized = is_max;
+
+    if !is_max {
+        if let Ok(pos) = win.outer_position() {
+            current_state.x = pos.x;
+            current_state.y = pos.y;
+        }
+        if let Ok(size) = win.outer_size() {
+            if size.width >= 600 && size.height >= 400 {
+                current_state.width = size.width;
+                current_state.height = size.height;
+            }
+        }
+    }
+
+    if let Ok(serialized) = serde_json::to_string_pretty(&current_state) {
+        let _ = std::fs::write(&path, serialized);
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+                save_window_state(window, false);
+            }
+            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                save_window_state(window, true);
+            }
+            _ => {}
+        })
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
@@ -772,6 +902,7 @@ fn main() {
                 if let Some(icon) = app.default_window_icon() {
                     let _ = win.set_icon(icon.clone());
                 }
+                restore_window_state(&win);
             }
 
             tauri::async_runtime::spawn(async {

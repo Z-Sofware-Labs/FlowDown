@@ -110,6 +110,14 @@ export const QtMenuBar: React.FC<QtMenuBarProps> = ({
   };
 
   useEffect(() => {
+    if (isTauriDesktop) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        getCurrentWindow().isMaximized().then(setIsMaximized).catch(() => {});
+      });
+    }
+  }, [isTauriDesktop]);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setActiveMenu(null);
