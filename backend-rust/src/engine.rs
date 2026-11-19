@@ -80,6 +80,9 @@ struct ActiveHttpControl {
     tracker: Arc<LiveHttpTracker>,
     last_seg_bytes: Vec<u64>,
     last_total_bytes: u64,
+    last_tick_time: std::time::Instant,
+    speed_samples: std::collections::VecDeque<u64>,
+    has_initial_sample: bool,
 }
 
 struct ActiveSwarmControl {
@@ -450,6 +453,9 @@ impl DaemonEngine {
                     tracker: tracker.clone(),
                     last_seg_bytes: initial,
                     last_total_bytes: initial_sum,
+                    last_tick_time: std::time::Instant::now(),
+                    speed_samples: std::collections::VecDeque::with_capacity(4),
+                    has_initial_sample: false,
                 },
             );
         }
@@ -1461,17 +1467,37 @@ impl DaemonEngine {
             let mut controls = self.http_controls.write().await;
             let mut transfers = self.transfers.write().await;
             for (id, ctrl) in controls.iter_mut() {
+                let now = std::time::Instant::now();
+                let elapsed = now.duration_since(ctrl.last_tick_time).as_secs_f64().max(0.1);
+                ctrl.last_tick_time = now;
+
                 let current_total = ctrl.tracker.total_downloaded.load(Ordering::Relaxed);
-                let delta = current_total.saturating_sub(ctrl.last_total_bytes);
+                let delta = if ctrl.has_initial_sample {
+                    current_total.saturating_sub(ctrl.last_total_bytes)
+                } else {
+                    0
+                };
                 ctrl.last_total_bytes = current_total;
+                ctrl.has_initial_sample = true;
+
                 if delta > 0 {
                     self.session_downloaded.fetch_add(delta, Ordering::Relaxed);
                 }
 
-                let speed = (delta as f64 / INTERVAL_SECS) as u64;
+                let instant_speed = (delta as f64 / elapsed) as u64;
+                ctrl.speed_samples.push_back(instant_speed);
+                if ctrl.speed_samples.len() > 3 {
+                    ctrl.speed_samples.pop_front();
+                }
+                let speed = if !ctrl.speed_samples.is_empty() {
+                    ctrl.speed_samples.iter().sum::<u64>() / ctrl.speed_samples.len() as u64
+                } else {
+                    instant_speed
+                };
+
                 let seg_snapshot = ctrl
                     .tracker
-                    .snapshot_segments(&mut ctrl.last_seg_bytes, INTERVAL_SECS);
+                    .snapshot_segments(&mut ctrl.last_seg_bytes, elapsed);
 
                 if let Some(t) = transfers.get_mut(id) {
                     t.downloaded = current_total;
