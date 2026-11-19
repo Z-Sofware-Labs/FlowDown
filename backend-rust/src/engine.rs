@@ -684,10 +684,26 @@ impl DaemonEngine {
         let session = self.get_rqbit_session().await?;
         let _ = tokio::fs::create_dir_all(&save_path).await;
 
-        let opts = librqbit::AddTorrentOptions {
-            output_folder: Some(save_path.to_string_lossy().to_string()),
-            overwrite: true,
-            ..Default::default()
+        let default_download_dir = {
+            let cfg = self.config.read().await;
+            cfg.download_directory.clone()
+        };
+
+        // When saving to default download directory (or download root), pass output_folder: None
+        // so librqbit's default rule automatically places multi-file torrents into a dedicated subfolder,
+        // while single-file torrents download directly into the download directory.
+        let opts = if save_path == default_download_dir {
+            librqbit::AddTorrentOptions {
+                output_folder: None,
+                overwrite: true,
+                ..Default::default()
+            }
+        } else {
+            librqbit::AddTorrentOptions {
+                output_folder: Some(save_path.to_string_lossy().to_string()),
+                overwrite: true,
+                ..Default::default()
+            }
         };
 
         let response = session
@@ -733,6 +749,9 @@ impl DaemonEngine {
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
             let mut last_progress_bytes = 0u64;
             let mut last_uploaded_bytes = 0u64;
+            let mut last_tick_time = std::time::Instant::now();
+            let mut speed_samples: std::collections::VecDeque<u64> = std::collections::VecDeque::with_capacity(4);
+            let mut has_initial_sample = false;
 
             loop {
                 tokio::select! {
@@ -742,13 +761,17 @@ impl DaemonEngine {
                         }
                     }
                     _ = interval.tick() => {
+                        let now = std::time::Instant::now();
+                        let elapsed_secs = now.duration_since(last_tick_time).as_secs_f64().max(0.1);
+                        last_tick_time = now;
+
                         let stats = torrent.stats();
-                        let down_speed = stats
+                        let wire_down_speed = stats
                             .live
                             .as_ref()
                             .map(|live| live.download_speed.as_bytes())
                             .unwrap_or(0);
-                        let up_speed = stats
+                        let wire_up_speed = stats
                             .live
                             .as_ref()
                             .map(|live| live.upload_speed.as_bytes())
@@ -759,16 +782,43 @@ impl DaemonEngine {
                             .map(|live| live.snapshot.peer_stats.live as u32)
                             .unwrap_or(0);
 
-                        if stats.progress_bytes > last_progress_bytes {
-                            let diff = stats.progress_bytes - last_progress_bytes;
-                            session_downloaded.fetch_add(diff, Ordering::Relaxed);
-                            last_progress_bytes = stats.progress_bytes;
+                        let delta_down = if has_initial_sample {
+                            stats.progress_bytes.saturating_sub(last_progress_bytes)
+                        } else {
+                            0
+                        };
+                        let delta_up = if has_initial_sample {
+                            stats.uploaded_bytes.saturating_sub(last_uploaded_bytes)
+                        } else {
+                            0
+                        };
+
+                        if delta_down > 0 {
+                            session_downloaded.fetch_add(delta_down, Ordering::Relaxed);
                         }
-                        if stats.uploaded_bytes > last_uploaded_bytes {
-                            let diff = stats.uploaded_bytes - last_uploaded_bytes;
-                            session_uploaded.fetch_add(diff, Ordering::Relaxed);
-                            last_uploaded_bytes = stats.uploaded_bytes;
+                        if delta_up > 0 {
+                            session_uploaded.fetch_add(delta_up, Ordering::Relaxed);
                         }
+
+                        last_progress_bytes = stats.progress_bytes;
+                        last_uploaded_bytes = stats.uploaded_bytes;
+                        has_initial_sample = true;
+
+                        // Calculate instantaneous rate from actual completed payload progress
+                        let instant_rate = (delta_down as f64 / elapsed_secs) as u64;
+                        speed_samples.push_back(instant_rate);
+                        if speed_samples.len() > 3 {
+                            speed_samples.pop_front();
+                        }
+                        let avg_progress_speed = if !speed_samples.is_empty() {
+                            speed_samples.iter().sum::<u64>() / speed_samples.len() as u64
+                        } else {
+                            0
+                        };
+
+                        // Real effective speed: higher of completed progress rate and socket wire rate
+                        let down_speed = avg_progress_speed.max(wire_down_speed);
+                        let up_speed = wire_up_speed;
 
                         let mut map = transfers_map.write().await;
                         if let Some(t) = map.get_mut(&tid) {
@@ -818,6 +868,13 @@ impl DaemonEngine {
                                     t.name = name;
                                 }
                             }
+
+                            // Continuously ensure t.save_path reflects the true on-disk folder (e.g. subfolder for multi-file torrents)
+                            let actual_out = torrent.output_folder().to_path_buf();
+                            if !actual_out.as_os_str().is_empty() {
+                                t.save_path = actual_out;
+                            }
+
                             t.download_speed = down_speed;
                             t.upload_speed = up_speed;
                             t.peers_connected = peers;

@@ -651,7 +651,7 @@ export class TorrentEngine {
       totalUp += effectiveUp;
       totalBypassed += bypassedSpeedGain;
 
-      const newDownloaded = Math.min(tor.size, tor.downloaded + effectiveDown * 1.5);
+      const newDownloaded = Math.min(tor.size, tor.downloaded + effectiveDown);
       const newProgress = parseFloat(((newDownloaded / tor.size) * 100).toFixed(1));
 
       // Advance piece map
@@ -679,7 +679,7 @@ export class TorrentEngine {
           if (seg.status === 'active') {
             const segDownloaded = Math.min(
               seg.endByte - seg.startByte,
-              seg.downloadedBytes + speedPerSeg * 1.5
+              seg.downloadedBytes + speedPerSeg
             );
             return {
               ...seg,
