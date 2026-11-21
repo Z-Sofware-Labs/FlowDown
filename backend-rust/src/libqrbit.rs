@@ -502,7 +502,7 @@ pub async fn resolve_host_doh(host: &str, port: u16) -> Result<Vec<SocketAddr>, 
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(2500))
-        .user_agent("FlowDown/2.0.7")
+        .user_agent("FlowDown/2.0.8")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -716,7 +716,7 @@ impl LibqrbitEngine {
             Err(_) => self.get_port().await,
         };
         let udp_ephemeral_ok = current_port >= 1024;
-        self.set_enabled(true).await;
+        let stealth_enabled_now = self.is_enabled().await;
 
         // Stage 2: Compare System UDP:53 DNS vs Encrypted DoH (Cloudflare 1.1.1.1) for a real BitTorrent tracker
         let sys_dns_t0 = Instant::now();
@@ -759,15 +759,21 @@ impl LibqrbitEngine {
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
-            .user_agent("FlowDown/2.0.7")
+            .user_agent("FlowDown/2.0.8")
             .build()
             .unwrap_or_default();
 
-        // Measure 1-stream download speed (128 KB sample from Cloudflare speed edge)
+        // Warm up DNS + TLS session before timing single-stream vs multi-stream throughput
+        let _ = client
+            .get("https://speed.cloudflare.com/__down?bytes=1024")
+            .send()
+            .await;
+
+        // Measure 1-stream download speed (512 KB sample on warmed connection)
         let mut single_stream_kbps = 0u64;
         let single_t0 = Instant::now();
         if let Ok(resp) = client
-            .get("https://speed.cloudflare.com/__down?bytes=131072")
+            .get("https://speed.cloudflare.com/__down?bytes=524288")
             .send()
             .await
         {
@@ -777,15 +783,15 @@ impl LibqrbitEngine {
             }
         }
 
-        // Measure 8-stream concurrent download speed (8 x 128 KB = 1 MB concurrent burst)
+        // Measure 4-stream concurrent download speed (4 x 512 KB = 2 MB concurrent burst)
         let mut multi_stream_mbps = 0.0f64;
         let multi_t0 = Instant::now();
         let mut tasks = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..4 {
             let c = client.clone();
             tasks.push(tokio::spawn(async move {
                 if let Ok(r) = c
-                    .get("https://speed.cloudflare.com/__down?bytes=131072")
+                    .get("https://speed.cloudflare.com/__down?bytes=524288")
                     .send()
                     .await
                 {
@@ -808,16 +814,17 @@ impl LibqrbitEngine {
                 (((total_multi_bytes as f64) * 8.0) / (secs * 1_000_000.0) * 10.0).round() / 10.0;
         }
 
-        if single_stream_kbps == 0 {
-            // Fallback calculation from measured RTT if speed.cloudflare.com is blocked
-            single_stream_kbps = (12_000 / tls_probe_latency_ms.max(8)).max(240);
-            multi_stream_mbps = ((single_stream_kbps as f64 * 6.5 * 8.0) / 1000.0 * 10.0).round() / 10.0;
+        if single_stream_kbps == 0 && total_multi_bytes == 0 {
+            notes.push(
+                "Throughput probe unreachable (speed.cloudflare.com failed); skipped speed comparison."
+                    .to_string(),
+            );
+        } else {
+            notes.push(format!(
+                "Measured live throughput: Single-Stream {} KB/s vs. 4-Stream Parallel {:.1} Mbps (TCP:443 RTT {} ms).",
+                single_stream_kbps, multi_stream_mbps, tls_probe_latency_ms
+            ));
         }
-
-        notes.push(format!(
-            "Measured live throughput: Single-Stream {} KB/s vs. 8-Stream Parallel {:.1} Mbps (TCP:443 RTT {} ms).",
-            single_stream_kbps, multi_stream_mbps, tls_probe_latency_ms
-        ));
 
         // Stage 4: Real 768-bit DH + RC4 MSE/PE Cryptographic Frame & Shannon Entropy
         let sample_hash = sha1_bytes(&[b"flowdown-evasion-probe"]);
@@ -845,7 +852,7 @@ impl LibqrbitEngine {
 
         let single_mbps = (single_stream_kbps as f64 * 8.0) / 1000.0;
         let isp_throttling_suspected =
-            !sys_dns_ok || !port_6881_ok || (multi_stream_mbps > single_mbps * 1.8);
+            !sys_dns_ok || (single_stream_kbps > 0 && multi_stream_mbps > single_mbps * 2.2);
 
         let (recommended_profile, recommended_segments, recommended_fec_ratio, recommended_jitter_ms) =
             if !sys_dns_ok || !udp_ephemeral_ok {
@@ -858,7 +865,7 @@ impl LibqrbitEngine {
 
         EvasionDiagnosticResult {
             success: true,
-            stealth_enabled: true,
+            stealth_enabled: stealth_enabled_now,
             current_port,
             udp_bound_port: current_port,
             udp_ephemeral_ok,

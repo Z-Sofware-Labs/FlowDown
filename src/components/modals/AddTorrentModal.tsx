@@ -121,6 +121,7 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
   const [seedersCount, setSeedersCount] = useState<number>(0);
   const [peersCount, setPeersCount] = useState<number>(0);
   const [isProbing, setIsProbing] = useState(false);
+  const [isScrapingSwarm, setIsScrapingSwarm] = useState(false);
   const [isBackgroundProbing, setIsBackgroundProbing] = useState(false);
   const [fromLocalTorrentFile, setFromLocalTorrentFile] = useState(false);
   const [category, setCategory] = useState('Default');
@@ -133,6 +134,8 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
 
   const probeTimerRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
+  const nameRef = useRef(name);
+  nameRef.current = name;
 
   // Initialize modal state on open
   useEffect(() => {
@@ -223,22 +226,33 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
       setProbedFiles(meta.files || []);
       setPieceLength(meta.pieceLength);
       setPieceCount(meta.pieceCount);
+      // Local .torrent metadata & exact file sizes are now ready; stop blocking UI
+      setIsProbing(false);
 
-      // Scrape live swarm seeders/peers via Rust backend
-      const rpcProbe = await apiClient.probeTorrent('', meta.name, b64);
-      if (rpcProbe) {
-        if (rpcProbe.size > 0) setProbedBytes(rpcProbe.size);
-        if (rpcProbe.name && !nameCustomized) setName(rpcProbe.name);
-        if (rpcProbe.infoHash) setParsedInfoHash(rpcProbe.infoHash);
-        if (rpcProbe.files && rpcProbe.files.length > 0) setProbedFiles(rpcProbe.files);
-        if (rpcProbe.pieceLength) setPieceLength(rpcProbe.pieceLength);
-        if (rpcProbe.pieceCount) setPieceCount(rpcProbe.pieceCount);
-        setSeedersCount(rpcProbe.seeders || 0);
-        setPeersCount(rpcProbe.peers || 0);
-      }
+      // Scrape live swarm seeders/peers asynchronously via Rust backend without hiding size
+      setIsScrapingSwarm(true);
+      void apiClient
+        .probeTorrent('', meta.name, b64)
+        .then((rpcProbe) => {
+          if (rpcProbe) {
+            if (rpcProbe.size > 0 && meta.totalBytes === 0) setProbedBytes(rpcProbe.size);
+            if (rpcProbe.name && !nameCustomized && !meta.name) setName(rpcProbe.name);
+            if (rpcProbe.infoHash && !meta.infoHash) setParsedInfoHash(rpcProbe.infoHash);
+            if (rpcProbe.files && rpcProbe.files.length > 0 && (!meta.files || meta.files.length === 0)) {
+              setProbedFiles(rpcProbe.files);
+            }
+            if (rpcProbe.pieceLength && !meta.pieceLength) setPieceLength(rpcProbe.pieceLength);
+            if (rpcProbe.pieceCount && !meta.pieceCount) setPieceCount(rpcProbe.pieceCount);
+            setSeedersCount(rpcProbe.seeders || 0);
+            setPeersCount(rpcProbe.peers || 0);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setIsScrapingSwarm(false);
+        });
     } catch (err) {
       console.warn('Failed to parse local torrent file:', err);
-    } finally {
       setIsProbing(false);
     }
   }, [nameCustomized]);
@@ -334,6 +348,7 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
             ? trimmed
             : hash || (detectedKind === 'url' ? trimmed : undefined);
 
+        let resolvedComplete = false;
         if (magnetOrHash) {
           const res = await apiClient.resolveMagnet(magnetOrHash);
           if (!cancelled && res && res.valid) {
@@ -346,8 +361,10 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
             if (res.seeders) setSeedersCount(res.seeders);
             if (res.peers) setPeersCount(res.peers);
 
-            // If size is still 0 (waiting for BEP-9 metadata in peer swarm), retry in background
-            if (!res.size || res.size <= 0) {
+            if (res.size && res.size > 0 && res.files && res.files.length > 0) {
+              resolvedComplete = true;
+            } else if (!res.size || res.size <= 0) {
+              // If size is still 0 (waiting for BEP-9 metadata in peer swarm), retry in background
               setIsBackgroundProbing(true);
               let attempts = 0;
               const pollSwarm = async () => {
@@ -381,17 +398,19 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
           }
         }
 
-        // Also query torrent probe endpoint
-        const torrentRes = await apiClient.probeTorrent(trimmed, name || trimmed);
-        if (!cancelled && torrentRes) {
-          if (torrentRes.size > 0) setProbedBytes(torrentRes.size);
-          if (torrentRes.name && !nameCustomized) setName(torrentRes.name);
-          if (torrentRes.infoHash) setParsedInfoHash(torrentRes.infoHash);
-          if (torrentRes.files && torrentRes.files.length > 0) setProbedFiles(torrentRes.files);
-          if (torrentRes.pieceLength) setPieceLength(torrentRes.pieceLength);
-          if (torrentRes.pieceCount) setPieceCount(torrentRes.pieceCount);
-          if (torrentRes.seeders) setSeedersCount(torrentRes.seeders);
-          if (torrentRes.peers) setPeersCount(torrentRes.peers);
+        // Only query torrent probe endpoint if resolveMagnet did not already return full metadata
+        if (!cancelled && !resolvedComplete) {
+          const torrentRes = await apiClient.probeTorrent(trimmed, nameRef.current || trimmed);
+          if (!cancelled && torrentRes) {
+            if (torrentRes.size > 0) setProbedBytes(torrentRes.size);
+            if (torrentRes.name && !nameCustomized) setName(torrentRes.name);
+            if (torrentRes.infoHash) setParsedInfoHash(torrentRes.infoHash);
+            if (torrentRes.files && torrentRes.files.length > 0) setProbedFiles(torrentRes.files);
+            if (torrentRes.pieceLength) setPieceLength(torrentRes.pieceLength);
+            if (torrentRes.pieceCount) setPieceCount(torrentRes.pieceCount);
+            if (torrentRes.seeders) setSeedersCount(torrentRes.seeders);
+            if (torrentRes.peers) setPeersCount(torrentRes.peers);
+          }
         }
       } catch (err) {
         console.warn('Probe error:', err);
@@ -407,7 +426,7 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
       if (probeTimerRef.current) window.clearTimeout(probeTimerRef.current);
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
-  }, [isOpen, sourceInput, fromLocalTorrentFile, nameCustomized, name]);
+  }, [isOpen, sourceInput, fromLocalTorrentFile, nameCustomized]);
 
   if (!isOpen) return null;
 
@@ -479,17 +498,18 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
     onClose();
   };
 
-  const estimatedSizeDisplay = isProbing
-    ? 'Probing metadata...'
-    : isBackgroundProbing
-    ? 'Probing swarm metadata...'
-    : probedBytes > 0
-    ? formatProbedSize(probedBytes)
-    : parsedInfoHash
-    ? `Swarm (${parsedInfoHash.slice(0, 8)}...) - Resolving size`
-    : sourceInput.trim().startsWith('http')
-    ? 'Probing remote link...'
-    : 'Paste Magnet / URL / Hash, or browse .torrent';
+  const estimatedSizeDisplay =
+    probedBytes > 0
+      ? formatProbedSize(probedBytes)
+      : isProbing
+      ? 'Probing metadata...'
+      : isBackgroundProbing
+      ? 'Probing swarm metadata...'
+      : parsedInfoHash
+      ? `Swarm (${parsedInfoHash.slice(0, 8)}...) - Resolving size`
+      : sourceInput.trim().startsWith('http')
+      ? 'Probing remote link...'
+      : 'Paste Magnet / URL / Hash, or browse .torrent';
 
   return (
     <div
@@ -548,11 +568,15 @@ export const AddTorrentModal: React.FC<AddTorrentModalProps> = ({
                 )}
               </span>
 
-              {probedBytes > 0 && !isProbing && (
+              {probedBytes > 0 && (
                 <span className="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-mono">
                   <CheckCircle2 className="w-3 h-3" />
                   Metadata Verified ({formatProbedSize(probedBytes)}
-                  {seedersCount > 0 || peersCount > 0 ? ` • ${seedersCount}S / ${peersCount}P` : ''})
+                  {seedersCount > 0 || peersCount > 0
+                    ? ` • ${seedersCount}S / ${peersCount}P`
+                    : isScrapingSwarm
+                    ? ' • Scraping swarm...'
+                    : ''})
                 </span>
               )}
             </div>

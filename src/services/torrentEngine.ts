@@ -44,7 +44,7 @@ export class TorrentEngine {
   };
   private speedHistory: SpeedHistoryPoint[] = [];
   private logs: LogEntry[] = [
-    { id: '1', timestamp: '16:50:01', type: 'INFO', message: 'FlowDown Engine v2.0.7 initialized (Qt 6 + Rust core).' },
+    { id: '1', timestamp: '16:50:01', type: 'INFO', message: 'FlowDown Engine v2.0.8 initialized (Qt 6 + Rust core).' },
     { id: '2', timestamp: '16:50:02', type: 'LIBQRBIT', message: 'libqrbit v3.4.1 runtime loaded: Multi-Path Morphing, Decoy Tunneling, UDP Hole Punching ready.' },
     { id: '3', timestamp: '16:50:04', type: 'SECURITY', message: 'DHT node discovery bound to ephemeral obfuscated port 52841.' },
     { id: '4', timestamp: '16:52:12', type: 'TORRENT', message: 'Transfer queue initialized (0 active transfers).' },
@@ -57,6 +57,7 @@ export class TorrentEngine {
   private sessionUploaded: number = 0; // Total bytes uploaded in current session
   private rustDaemonConnected: boolean = false;
   private syncInFlight: boolean = false;
+  private pendingStealthUntil: number = 0;
   private completionListeners: Set<(torrent: TorrentItem) => void> = new Set();
   private completedIdsNotified: Set<string> = new Set();
 
@@ -190,7 +191,7 @@ export class TorrentEngine {
       obfuscationLevel: obf,
       throttlingDetected: false,
       throttlingRatio: 0,
-      bypassedSpeedGain: raw.libqrbit_enabled ? Math.floor(Number(raw.download_speed || 0) * 0.45) : 0,
+      bypassedSpeedGain: 0,
       decoyProtocol: 'QUIC/TLS1.3',
       packetMorphEfficiency: 98.2,
       shardingRoutesCount: segments?.length || 4,
@@ -318,7 +319,7 @@ export class TorrentEngine {
           statsChanged = true;
         }
         const stealth = Boolean(stats.stealth_active);
-        if (this.libqrbitConfig.enabled !== stealth) {
+        if (Date.now() >= this.pendingStealthUntil && this.libqrbitConfig.enabled !== stealth) {
           this.libqrbitConfig.enabled = stealth;
           statsChanged = true;
         }
@@ -336,7 +337,7 @@ export class TorrentEngine {
             time: timeStr,
             downloadSpeed: downKbps,
             uploadSpeed: upKbps,
-            bypassedSpeed: this.libqrbitConfig.enabled ? Math.floor(((stats.total_down_speed || 0) * 0.45) / 1024) : 0,
+            bypassedSpeed: 0,
           });
           if (this.speedHistory.length > 30) this.speedHistory.shift();
           statsChanged = true;
@@ -833,6 +834,7 @@ export class TorrentEngine {
   public setLibqrbitEnabled(enabled: boolean) {
     if (this.libqrbitConfig.enabled !== enabled) {
       this.libqrbitConfig.enabled = enabled;
+      this.pendingStealthUntil = Date.now() + 2500;
       if (this.rustDaemonConnected) {
         void apiClient.setStealthRpc(enabled);
       }
@@ -918,6 +920,12 @@ export class TorrentEngine {
 
   public updateLibqrbitConfig(config: Partial<LibqrbitConfig>) {
     this.libqrbitConfig = { ...this.libqrbitConfig, ...config };
+    if (config.enabled !== undefined) {
+      this.pendingStealthUntil = Date.now() + 2500;
+      if (this.rustDaemonConnected) {
+        void apiClient.setStealthRpc(config.enabled);
+      }
+    }
     this.addLog('LIBQRBIT', `libqrbit configuration updated: Profile [${this.libqrbitConfig.dpiEvasionProfile}].`);
     this.notify();
   }
@@ -1283,24 +1291,30 @@ export class TorrentEngine {
     }
 
     const piecesCount = Math.max(20, Math.min(250, Math.floor(data.size / (1024 * 1024 * 4))));
+    const initDownSpeed = this.rustDaemonConnected ? 0 : 16500000;
+    const initUpSpeed = this.rustDaemonConnected ? 0 : 820000;
+    const initSeeds = this.rustDaemonConnected ? 0 : (data.seedsConnected ?? 24);
+    const initPeers = this.rustDaemonConnected ? 0 : (data.peersConnected ?? 18);
+    const initEta = this.rustDaemonConnected ? 'Connecting...' : calculateEta(data.size, 16500000);
+
     const newTor: TorrentItem = {
       id: clientAssignedId,
       name: data.name,
       size: data.size,
       downloaded: 0,
       uploaded: 0,
-      downloadSpeed: 16500000,
-      uploadSpeed: 820000,
+      downloadSpeed: initDownSpeed,
+      uploadSpeed: initUpSpeed,
       status: isStealth ? 'stealth_active' : 'downloading',
       progress: 0,
-      seedsConnected: data.seedsConnected ?? 24,
-      seedsTotal: data.seedsTotal ?? 65,
-      peersConnected: data.peersConnected ?? 18,
-      peersTotal: data.peersTotal ?? 40,
-      swarmHealth: 7.2,
-      healthGrade: 'A',
+      seedsConnected: initSeeds,
+      seedsTotal: data.seedsTotal ?? (this.rustDaemonConnected ? 0 : 65),
+      peersConnected: initPeers,
+      peersTotal: data.peersTotal ?? (this.rustDaemonConnected ? 0 : 40),
+      swarmHealth: this.rustDaemonConnected ? 0 : 7.2,
+      healthGrade: this.rustDaemonConnected ? 'N/A' : 'A',
       ratio: 0,
-      eta: calculateEta(data.size, 16500000),
+      eta: initEta,
       addedDate: new Date().toISOString().replace('T', ' ').substring(0, 16),
       savePath: resolvedSavePath,
       hash: data.hash || generateHash(),
@@ -1397,24 +1411,27 @@ export class TorrentEngine {
       });
     }
 
+    const initHttpSpeed = this.rustDaemonConnected ? 0 : 14500000;
+    const initHttpEta = this.rustDaemonConnected ? 'Connecting...' : calculateEta(data.size, 14500000);
+
     const newDownload: TorrentItem = {
-      id: `idm-${Date.now()}`,
+      id: clientAssignedId,
       name: data.name,
       size: data.size,
       downloaded: 0,
       uploaded: 0,
-      downloadSpeed: 14500000,
+      downloadSpeed: initHttpSpeed,
       uploadSpeed: 0,
       status: 'downloading',
       progress: 0,
       seedsConnected: 0,
       seedsTotal: 0,
-      peersConnected: data.segmentsCount,
+      peersConnected: this.rustDaemonConnected ? 0 : data.segmentsCount,
       peersTotal: data.segmentsCount,
-      swarmHealth: 10.0,
-      healthGrade: 'A+',
+      swarmHealth: this.rustDaemonConnected ? 0 : 10.0,
+      healthGrade: this.rustDaemonConnected ? 'N/A' : 'A+',
       ratio: 0,
-      eta: calculateEta(data.size, 14500000),
+      eta: initHttpEta,
       addedDate: new Date().toISOString().replace('T', ' ').substring(0, 16),
       savePath: resolvedSavePath,
       hash: generateHash(),

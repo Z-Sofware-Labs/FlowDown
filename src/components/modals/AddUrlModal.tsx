@@ -37,6 +37,8 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [probedBytes, setProbedBytes] = useState<number>(0);
   const [isProbingUrl, setIsProbingUrl] = useState(false);
+  const [probeCompleted, setProbeCompleted] = useState(false);
+  const [probeError, setProbeError] = useState<string | null>(null);
   const [supportsRange, setSupportsRange] = useState<boolean | null>(null);
   const [serverLatencyMs, setServerLatencyMs] = useState<number | null>(null);
 
@@ -78,6 +80,8 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
       setSupportsRange(null);
       setServerLatencyMs(null);
       setResolvedStreamUrl(null);
+      setProbeCompleted(false);
+      setProbeError(null);
       setIsProbingUrl(false);
       return;
     }
@@ -86,13 +90,20 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
       window.clearTimeout(urlProbeTimerRef.current);
     }
 
+    let cancelled = false;
+    setProbedBytes(0);
+    setSupportsRange(null);
+    setServerLatencyMs(null);
+    setResolvedStreamUrl(null);
+    setProbeCompleted(false);
+    setProbeError(null);
     setIsProbingUrl(true);
+
     urlProbeTimerRef.current = window.setTimeout(async () => {
       const res = await apiClient.probeHttpUrl(trimmedUrl);
-      if (res) {
-        if (res.size > 0) {
-          setProbedBytes(res.size);
-        }
+      if (cancelled) return;
+      if (res && res.success) {
+        setProbedBytes(res.size > 0 ? res.size : 0);
         if (res.resolvedUrl) {
           setResolvedStreamUrl(res.resolvedUrl);
         } else {
@@ -103,14 +114,21 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
         }
         setSupportsRange(res.supportsRange);
         setServerLatencyMs(res.latencyMs);
+        setProbeError(null);
+      } else {
+        setProbedBytes(0);
+        setSupportsRange(null);
+        setProbeError('Could not probe remote headers');
       }
+      setProbeCompleted(true);
       setIsProbingUrl(false);
-      if (segmentMode === 'auto') {
-        runSegmentProbe(res?.resolvedUrl || trimmedUrl);
+      if (!cancelled && segmentMode === 'auto' && res?.success) {
+        runSegmentProbe(res.resolvedUrl || trimmedUrl);
       }
     }, 350);
 
     return () => {
+      cancelled = true;
       if (urlProbeTimerRef.current) {
         window.clearTimeout(urlProbeTimerRef.current);
       }
@@ -140,7 +158,7 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const bytes = probedBytes > 0 ? probedBytes : 100 * 1024 * 1024;
+    const bytes = probedBytes > 0 ? probedBytes : 0;
     onAdd({
       url: resolvedStreamUrl || url.trim(),
       name: name.trim() || 'download.bin',
@@ -159,8 +177,10 @@ export const AddUrlModal: React.FC<AddUrlModalProps> = ({
     ? 'Probing server...'
     : probedBytes > 0
     ? formatProbedSize(probedBytes)
-    : supportsRange !== null
-    ? 'Stream (Dynamic)'
+    : probeError
+    ? 'Unknown (Probe failed)'
+    : probeCompleted
+    ? 'Unknown (Single-Stream)'
     : 'Enter URL to probe';
 
   return (

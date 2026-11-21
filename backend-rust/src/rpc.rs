@@ -96,7 +96,7 @@ impl RpcDispatcher {
             "core.getVersion" => Ok(json!({
                 "daemon": "flowdownd",
                 "app": "FlowDown",
-                "version": "2.0.7",
+                "version": "2.0.8",
                 "protocol": "jsonrpc-2.0",
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH
@@ -897,6 +897,11 @@ impl RpcDispatcher {
             "stealth.toggle" => {
                 let active = self.libqrbit.toggle().await;
                 let port = self.libqrbit.get_port().await;
+                {
+                    let mut cfg = self.config.write().await;
+                    cfg.libqrbit.enabled = active;
+                    let _ = cfg.save_to_file(&self.config_path).await;
+                }
                 Ok(json!({ "active": active, "stealth_port": port }))
             }
             "stealth.set" => {
@@ -908,6 +913,11 @@ impl RpcDispatcher {
                     .unwrap_or(false);
                 self.libqrbit.set_enabled(active).await;
                 let port = self.libqrbit.get_port().await;
+                {
+                    let mut cfg = self.config.write().await;
+                    cfg.libqrbit.enabled = active;
+                    let _ = cfg.save_to_file(&self.config_path).await;
+                }
                 Ok(json!({ "active": active, "stealth_port": port }))
             }
             "stealth.randomizePort" => {
@@ -1065,8 +1075,8 @@ impl RpcDispatcher {
             "system.updates.check" => Ok(json!({
                 "success": true,
                 "app": "FlowDown",
-                "currentVersion": "2.0.7",
-                "latestVersion": "2.0.7",
+                "currentVersion": "2.0.8",
+                "latestVersion": "2.0.8",
                 "channel": "stable",
                 "isUpToDate": true,
                 "releaseDate": "2026-11-19",

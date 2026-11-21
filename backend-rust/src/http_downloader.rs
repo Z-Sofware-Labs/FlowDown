@@ -67,7 +67,7 @@ pub struct HttpDownloadOptions {
 impl Default for HttpDownloadOptions {
     fn default() -> Self {
         Self {
-            user_agent: "FlowDown/2.0.7 (RustCore)".to_string(),
+            user_agent: "FlowDown/2.0.8 (RustCore)".to_string(),
             referer: None,
             timeout_seconds: 15,
             max_retries: 5,
@@ -312,7 +312,7 @@ impl HttpDownloader {
         &self,
         url: &str,
     ) -> Result<HttpProbeResult, Box<dyn std::error::Error + Send + Sync>> {
-        self.probe_with_ua(url, "FlowDown/2.0.7 (RustCore)").await
+        self.probe_with_ua(url, "FlowDown/2.0.8 (RustCore)").await
     }
 
     pub async fn probe_with_ua(
@@ -387,7 +387,7 @@ impl HttpDownloader {
                         }
                     }
                 }
-                if content_length == 0 {
+                if content_length == 0 && range_res.status() == reqwest::StatusCode::OK {
                     if let Some(cl) = range_res
                         .headers()
                         .get(CONTENT_LENGTH)
@@ -799,7 +799,7 @@ impl HttpDownloader {
                             break;
                         }
                     }
-                    chunk_res = tokio::time::timeout(Duration::from_secs(35), stream.next()) => {
+                    chunk_res = tokio::time::timeout(Duration::from_secs(15), stream.next()) => {
                         match chunk_res {
                             Ok(Some(Ok(data))) => {
                                 let live_end = seg.end.load(Ordering::SeqCst);
@@ -956,7 +956,7 @@ impl HttpDownloader {
                 .map_err(|e| format!("Failed to create destination folder: {}", e))?;
         }
 
-        let client = self.build_client(options.timeout_seconds, &options.user_agent);
+        let client = self.client.clone();
 
         // Single unknown-length stream fallback
         if tracker.total_size == 0 || !supports_ranges {
@@ -982,8 +982,11 @@ impl HttpDownloader {
 
         let mut join_set: JoinSet<Result<bool, String>> = JoinSet::new();
 
-        // Spawn initial workers for all initial pending segments
+        // Slow-start: spawn at most 4 initial workers to avoid a TLS/TCP connection storm under throttling,
+        // letting the dynamic scaler ramp up to target_segments once streams are flowing.
         let initial_segs = tracker.get_segments();
+        let initial_burst_cap = 4usize;
+        let mut spawned_initial = 0usize;
         for seg in initial_segs {
             let cur_end = seg.end.load(Ordering::Relaxed);
             let seg_len = if cur_end >= seg.start { cur_end - seg.start + 1 } else { 0 };
@@ -991,6 +994,10 @@ impl HttpDownloader {
                 seg.status.store(SEG_COMPLETED, Ordering::Relaxed);
                 continue;
             }
+            if spawned_initial >= initial_burst_cap {
+                break;
+            }
+            spawned_initial += 1;
 
             let client_c = client.clone();
             let url_c = url.clone();

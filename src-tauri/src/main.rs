@@ -131,7 +131,7 @@ async fn get_or_init_embedded_dispatcher() -> Arc<rpc::RpcDispatcher> {
 
 #[tauri::command]
 fn get_app_version() -> String {
-    "2.0.7".to_string()
+    "2.0.8".to_string()
 }
 
 async fn run_local_evasion_probe() -> Result<serde_json::Value, String> {
@@ -633,7 +633,7 @@ async fn download_and_launch_update(
     let target_path = temp_dir.join(&file_name);
 
     let client = reqwest::Client::builder()
-        .user_agent("FlowDown-Updater/2.0.7")
+        .user_agent("FlowDown-Updater/2.0.8")
         .build()
         .map_err(|e| e.to_string())?;
 

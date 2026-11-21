@@ -752,11 +752,7 @@ export default function App() {
 
   const handleToggleLibqrbitGlobal = () => {
     const nextState = !libqrbitConfig.enabled;
-    torrentEngine.updateLibqrbitConfig({ enabled: nextState });
-    torrentEngine.addLog(
-      'LIBQRBIT',
-      `libqrbit stealth multi-path subsystem ${nextState ? 'ENGAGED (Bypassing ISP restrictions)' : 'DISARMED (Traffic unmasked)'}.`
-    );
+    torrentEngine.setLibqrbitEnabled(nextState);
   };
 
   const handleTriggerPortHop = async () => {

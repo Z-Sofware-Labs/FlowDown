@@ -68,10 +68,12 @@ export const AnalyzerModal: React.FC<AnalyzerModalProps> = ({
   const [liveProbeNote, setLiveProbeNote] = useState<string | null>(null);
   const [measuredSegments, setMeasuredSegments] = useState<number>(16);
   const [measuredPort, setMeasuredPort] = useState<number>(currentConfig.currentStealthPort || 52841);
-  const [measuredSingleKbps, setMeasuredSingleKbps] = useState<number>(640);
-  const [measuredMultiMbps, setMeasuredMultiMbps] = useState<number>(28.4);
+  const [measuredSingleKbps, setMeasuredSingleKbps] = useState<number>(0);
+  const [measuredMultiMbps, setMeasuredMultiMbps] = useState<number>(0);
   const [measuredEntropy, setMeasuredEntropy] = useState<number>(7.42);
   const [measuredDohMs, setMeasuredDohMs] = useState<number>(16);
+  const [ispThrottlingSuspected, setIspThrottlingSuspected] = useState<boolean>(false);
+  const [probeFailed, setProbeFailed] = useState<boolean>(false);
 
   const baseBytesPerSec = Math.max(500_000, Math.round((measuredMultiMbps * 1_000_000) / 8));
   const singleStreamBytesPerSec = Math.max(64_000, Math.round(measuredSingleKbps * 1024));
@@ -197,16 +199,19 @@ export const AnalyzerModal: React.FC<AnalyzerModalProps> = ({
       setCurrentTestName('Measuring 1-stream vs 8-stream multi-path throughput...');
       if (evasionReport) {
         if (evasionReport.udp_bound_port) setMeasuredPort(evasionReport.udp_bound_port);
-        if (evasionReport.single_stream_kbps) setMeasuredSingleKbps(evasionReport.single_stream_kbps);
-        if (evasionReport.multi_stream_mbps) setMeasuredMultiMbps(evasionReport.multi_stream_mbps);
+        setMeasuredSingleKbps(evasionReport.single_stream_kbps ?? 0);
+        setMeasuredMultiMbps(evasionReport.multi_stream_mbps ?? 0);
         if (evasionReport.mse_entropy_bits) setMeasuredEntropy(evasionReport.mse_entropy_bits);
         if (evasionReport.doh_latency_ms) setMeasuredDohMs(evasionReport.doh_latency_ms);
         if (evasionReport.recommended_segments) setMeasuredSegments(evasionReport.recommended_segments);
+        setIspThrottlingSuspected(Boolean(evasionReport.isp_throttling_suspected));
+        setProbeFailed((evasionReport.single_stream_kbps ?? 0) === 0 && (evasionReport.multi_stream_mbps ?? 0) === 0);
         setLiveProbeNote(
-          `Live Probe: UDP:${evasionReport.udp_bound_port ?? currentConfig.currentStealthPort} • DNS ${evasionReport.dns_latency_ms ?? 12}ms vs DoH ${evasionReport.doh_latency_ms ?? 18}ms • MSE Entropy ${(evasionReport.mse_entropy_bits ?? 7.42).toFixed(2)} bits/B • ${(evasionReport.multi_stream_mbps ?? 24).toFixed(1)} Mbps`
+          `Live Probe: UDP:${evasionReport.udp_bound_port ?? currentConfig.currentStealthPort} • DNS ${evasionReport.dns_latency_ms ?? 0}ms vs DoH ${evasionReport.doh_latency_ms ?? 0}ms • MSE Entropy ${(evasionReport.mse_entropy_bits ?? 7.42).toFixed(2)} bits/B • ${(evasionReport.multi_stream_mbps ?? 0).toFixed(1)} Mbps`
         );
       } else {
         setMeasuredPort(currentConfig.currentStealthPort || 52841);
+        setProbeFailed(true);
       }
       setTimeout(() => {
         setProgress(100);
@@ -366,12 +371,23 @@ export const AnalyzerModal: React.FC<AnalyzerModalProps> = ({
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div className="text-[11px] space-y-0.5">
                   <div className="font-bold text-[var(--os-text)]">
-                    P2P Traffic Shaper Detected: Allot / Sandvine Deep Packet Inspection
+                    {probeFailed
+                      ? 'Throughput Probe Unreachable — Local Crypto & Port Checks Only'
+                      : ispThrottlingSuspected
+                      ? 'Per-Stream Throttling or DNS Restriction Suspected'
+                      : 'No Significant Per-Stream Throttling Detected'}
                   </div>
                   <div className="text-[var(--os-text-muted)] leading-normal">
-                    BitTorrent handshakes on ports 6881-6889 clamped to 300 KB/s with ACK delay injection.
-                    <strong className="text-[var(--os-text)]"> Solution: </strong>
-                    Engaging <strong className="text-[var(--os-text)]">QUIC / TLS 1.3 Morphing</strong> on Port 52841 recovers <strong className="text-[var(--os-text)]">98.8% (+46.8 MB/s)</strong> line rate.
+                    {probeFailed ? (
+                      <>Could not reach the remote speed endpoint to measure baseline vs. multi-stream throughput.</>
+                    ) : (
+                      <>
+                        Measured 1-stream baseline at{' '}
+                        <strong className="text-[var(--os-text)]">{formatSpeed(singleStreamBytesPerSec)}</strong> vs. multi-stream at{' '}
+                        <strong className="text-[var(--os-text)]">{measuredMultiMbps.toFixed(1)} Mbps</strong> on ephemeral port{' '}
+                        <strong className="text-[var(--os-text)]">{measuredPort}</strong>.
+                      </>
+                    )}
                     {liveProbeNote && <div className="mt-1 font-mono text-[10px] text-[var(--os-accent)]">{liveProbeNote}</div>}
                   </div>
                 </div>
@@ -472,11 +488,12 @@ export const AnalyzerModal: React.FC<AnalyzerModalProps> = ({
                 <Globe className="w-4 h-4 text-[var(--os-accent)] shrink-0 mt-0.5" />
                 <div className="text-[11px] space-y-0.5">
                   <div className="font-bold text-[var(--os-text-selected-soft)]">
-                    HTTP Diagnostic Result: Server Accepts HTTP 206 Partial Content (Multi-Stream Ready)
+                    HTTP Diagnostic Result: Multi-Stream Range Probe ({measuredSegments}x Recommended)
                   </div>
                   <div className="text-[var(--os-text-selected-soft)] opacity-90 leading-normal">
-                    Single TCP connections are severely throttled by ISP traffic-shaping to <strong>1.8 MB/s</strong>.
-                    By splitting transfers into <strong>16 parallel segments</strong> with 1024 KB TCP window scaling, bandwidth leaps to <strong>28.4 MB/s (15.3x acceleration)</strong>!
+                    Measured single-stream rate: <strong>{formatSpeed(singleStreamBytesPerSec)}</strong>; multi-stream rate:{' '}
+                    <strong>{formatSpeed(baseBytesPerSec)}</strong> (
+                    <strong>{(baseBytesPerSec / Math.max(1, singleStreamBytesPerSec)).toFixed(1)}x</strong> observed scaling).
                     {liveProbeNote && <div className="mt-1 font-mono text-[10px] text-[var(--os-accent)]">{liveProbeNote}</div>}
                   </div>
                 </div>
