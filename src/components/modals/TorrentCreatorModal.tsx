@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, PlusCircle, Folder, HardDrive, ShieldCheck, Zap } from 'lucide-react';
 import { detectHostOs, getDefaultDownloadPath, getOsPathSeparator } from '../../utils/detectOs';
+import { APP_VERSION } from '../../constants/appInfo';
 import { pickOsFile } from '../../utils/osFilePicker';
 import { apiClient } from '../../services/apiClient';
 import { SubwindowHeader } from './SubwindowHeader';
@@ -58,7 +59,7 @@ export const TorrentCreatorModal: React.FC<TorrentCreatorModalProps> = ({
       output_path: outputPath,
       trackers: trackers.split('\n').map((t) => t.trim()).filter(Boolean),
       piece_length: pieceBytesMap[pieceSize] || 4 * 1024 * 1024,
-      comment: includeLibqrbitSignature ? 'FlowDown 2.0.4 libqrbit Stealth Swarm' : undefined,
+      comment: includeLibqrbitSignature ? `FlowDown ${APP_VERSION} libqrbit Stealth Swarm` : undefined,
       private: isPrivate,
     });
     onCreated(created?.name || torrentName.replace('.torrent', ''), created?.total_size || sourceSizeBytes);

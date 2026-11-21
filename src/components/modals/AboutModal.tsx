@@ -1,6 +1,7 @@
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import { SubwindowHeader } from './SubwindowHeader';
+import { APP_VERSION, APP_NAME, APP_PUBLISHER, APP_COPYRIGHT_YEAR } from '../../constants/appInfo';
 
 interface AboutModalProps {
   isOpen: boolean;
@@ -45,21 +46,21 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
           {/* App Name & Version */}
           <h2 className="text-[18px] font-bold text-[var(--os-text)] tracking-[-0.015em] leading-tight shrink-0">
-            FlowDown
+            {APP_NAME}
           </h2>
           <p className="mt-0.5 text-[12px] font-medium text-[var(--os-text-muted)] shrink-0">
-            Version 2.0.4
+            Version {APP_VERSION}
           </p>
 
           {/* Copyright + Publisher Emblem */}
           <div className="mt-3 flex items-center justify-center whitespace-nowrap text-[11px] leading-none shrink-0">
-            <span className="text-[var(--os-text-muted)]">Copyright © 2026</span>
+            <span className="text-[var(--os-text-muted)]">Copyright © {APP_COPYRIGHT_YEAR}</span>
             <img
               src="/assets/aistudio/Z_Software_Labs_69db8091.png"
-              alt="Z Software Labs"
+              alt={APP_PUBLISHER}
               className="w-3.5 h-3.5 mx-1.5 inline-block object-contain shrink-0"
             />
-            <span className="text-[var(--os-text)] font-medium">Z Software Labs.</span>
+            <span className="text-[var(--os-text)] font-medium">{APP_PUBLISHER}.</span>
             <span className="ml-1 text-[var(--os-text-muted)]">All rights reserved.</span>
           </div>
 
