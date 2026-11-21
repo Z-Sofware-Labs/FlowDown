@@ -210,11 +210,12 @@ export default function App() {
       const nestedDir = endsWithName ? normalizedSave : `${normalizedSave}${sep}${tor.name}`;
 
       const opened = await apiClient.openItem(nestedDir);
-      if (opened) {
+      if (!opened) {
+        showToast('File Missing or Deleted', `Cannot open directory "${tor.name}". It is not found on disk.`);
+        torrentEngine.addLog('TORRENT', `Attempted to open missing directory "${nestedDir}".`);
+      } else {
         torrentEngine.addLog('INFO', `Opened directory "${nestedDir}" [OS File Manager].`);
         showToast('Opened Directory', `${tor.name}`);
-      } else {
-        await handleOpenFolder(id);
       }
     } else {
       // Single file download: open file directly with default OS application
@@ -223,8 +224,8 @@ export default function App() {
 
       const opened = await apiClient.openItem(targetFilePath);
       if (!opened) {
-        // Fallback to opening folder
-        await handleOpenFolder(id);
+        showToast('File Missing or Deleted', `Cannot open file "${singleFileName}". It is not found on disk.`);
+        torrentEngine.addLog('TORRENT', `Attempted to open missing file "${targetFilePath}".`);
       } else {
         torrentEngine.addLog('INFO', `Opened file "${singleFileName}" [Default App].`);
         showToast('Opened Download', `${singleFileName}`);
@@ -235,6 +236,12 @@ export default function App() {
   const handleOpenFolder = async (id: string) => {
     const tor = torrents.find((t) => t.id === id);
     if (!tor) return;
+
+    if (tor.isMissing) {
+      showToast('File Missing or Deleted', `Cannot open destination folder for "${tor.name}". The target is not found on disk.`);
+      torrentEngine.addLog('TORRENT', `Attempted to open destination folder for missing transfer "${tor.name}" at "${tor.savePath}".`);
+      return;
+    }
 
     const openRes = await apiClient.openDestinationFolder(tor.savePath, tor.name);
     let openedViaBrowser = false;

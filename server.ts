@@ -682,19 +682,17 @@ async function startServer() {
     const downloadsFallback = path.join(os.homedir(), 'Downloads');
     let targetDir = requestedDir || downloadsFallback;
 
-    try {
-      if (!fs.existsSync(targetDir)) {
-        const parentDir = path.dirname(targetDir);
-        if (parentDir && fs.existsSync(parentDir)) {
-          targetDir = parentDir;
-        } else if (fs.existsSync(downloadsFallback)) {
-          targetDir = downloadsFallback;
-        } else {
-          targetDir = os.homedir();
-        }
-      }
-    } catch {
-      targetDir = os.homedir();
+    // Do not fall back to Downloads or home directory if target does not exist; return error
+    if (!fs.existsSync(targetDir)) {
+      return res.status(404).json({
+        success: false,
+        launchedNative: false,
+        platform: os.platform(),
+        fileManager: 'none',
+        resolvedPath: targetDir,
+        fileHighlighted: false,
+        error: 'Directory does not exist on disk',
+      });
     }
 
     const fullFilePath = fileName ? path.join(targetDir, fileName) : '';

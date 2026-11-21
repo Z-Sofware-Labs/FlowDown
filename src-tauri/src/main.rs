@@ -578,6 +578,9 @@ async fn call_daemon_rpc(
 #[tauri::command]
 fn open_item(path: String) -> Result<bool, String> {
     let p = Path::new(&path);
+    if !p.exists() {
+        return Err("File or directory does not exist on disk".to_string());
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -588,13 +591,7 @@ fn open_item(path: String) -> Result<bool, String> {
             cmd.creation_flags(0x08000000);
             let _ = cmd.spawn().map_err(|e| e.to_string())?;
         } else {
-            let target_dir = if p.is_dir() {
-                path.replace('/', "\\")
-            } else if let Some(parent) = p.parent().filter(|x| x.exists()) {
-                parent.to_string_lossy().replace('/', "\\")
-            } else {
-                path.replace('/', "\\")
-            };
+            let target_dir = path.replace('/', "\\");
             let mut cmd = std::process::Command::new("explorer");
             cmd.arg(&target_dir);
             cmd.creation_flags(0x08000000);

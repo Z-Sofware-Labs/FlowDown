@@ -1228,7 +1228,17 @@ fn open_native_item(path: &Path) -> Value {
     let is_dir = path.is_dir();
     let os = std::env::consts::OS;
 
-    let launched = if exists && !is_dir {
+    if !exists {
+        return json!({
+            "success": false,
+            "path": path.to_string_lossy(),
+            "isFile": false,
+            "launched": false,
+            "error": "File or directory does not exist on disk"
+        });
+    }
+
+    let launched = if !is_dir {
         // Open file directly with default application
         if os == "windows" {
             #[cfg(target_os = "windows")]
@@ -1249,13 +1259,8 @@ fn open_native_item(path: &Path) -> Value {
             cmd.spawn().is_ok()
         }
     } else {
-        // Fallback to opening folder
-        let dir = if is_dir {
-            path
-        } else {
-            path.parent().unwrap_or(path)
-        };
-        return open_native_folder(dir, "");
+        // Directory
+        return open_native_folder(path, "");
     };
 
     json!({
@@ -1267,15 +1272,19 @@ fn open_native_item(path: &Path) -> Value {
 }
 
 fn open_native_folder(dir: &Path, file_name: &str) -> Value {
-    let mut resolved = if dir.exists() {
-        dir.to_path_buf()
-    } else if let Some(parent) = dir.parent().filter(|p| p.exists()) {
-        parent.to_path_buf()
-    } else {
-        directories::UserDirs::new()
-            .and_then(|u| u.download_dir().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."))
-    };
+    if !dir.exists() {
+        return json!({
+            "success": false,
+            "launchedNative": false,
+            "platform": std::env::consts::OS,
+            "fileManager": "none",
+            "resolvedPath": dir.to_string_lossy(),
+            "fileHighlighted": false,
+            "error": "Directory does not exist on disk"
+        });
+    }
+
+    let mut resolved = dir.to_path_buf();
 
     if resolved.is_file() {
         if let Some(parent) = resolved.parent() {
