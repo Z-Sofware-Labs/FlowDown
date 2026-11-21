@@ -61,7 +61,7 @@ export interface TorrentItem {
   peersConnected: number;
   peersTotal: number;
   swarmHealth: number; // e.g. 1.0 to 10.0 availability
-  healthGrade: 'A+' | 'A' | 'B' | 'C' | 'Poor';
+  healthGrade: 'A+' | 'A' | 'B' | 'C' | 'Poor' | 'N/A';
   ratio: number;
   eta: string; // e.g. "4m 12s" or "∞"
   addedDate: string;
