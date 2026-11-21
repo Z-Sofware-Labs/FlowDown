@@ -1,6 +1,6 @@
 [package]
 name = "flowdown"
-version = "2.0.8"
+version = "2.0.9"
 description = "FlowDown Desktop App with Rust Backend Engine"
 authors = ["Z Software Labs"]
 edition = "2021"

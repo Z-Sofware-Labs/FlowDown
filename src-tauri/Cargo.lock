@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "flowdown"
-version = "2.0.8"
+version = "2.0.9"
 dependencies = [
  "chrono",
  "directories 5.0.1",

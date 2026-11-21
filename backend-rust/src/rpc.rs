@@ -96,7 +96,7 @@ impl RpcDispatcher {
             "core.getVersion" => Ok(json!({
                 "daemon": "flowdownd",
                 "app": "FlowDown",
-                "version": "2.0.8",
+                "version": "2.0.9",
                 "protocol": "jsonrpc-2.0",
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH
@@ -1075,8 +1075,8 @@ impl RpcDispatcher {
             "system.updates.check" => Ok(json!({
                 "success": true,
                 "app": "FlowDown",
-                "currentVersion": "2.0.8",
-                "latestVersion": "2.0.8",
+                "currentVersion": "2.0.9",
+                "latestVersion": "2.0.9",
                 "channel": "stable",
                 "isUpToDate": true,
                 "releaseDate": "2026-11-19",

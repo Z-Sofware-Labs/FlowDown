@@ -113,7 +113,7 @@ export const QtTitleBar: React.FC<QtTitleBarProps> = ({
               className="w-3.5 h-3.5 rounded object-cover shrink-0"
             />
           )}
-          <span>FlowDown 2.0.8</span>
+          <span>FlowDown 2.0.9</span>
         </span>
       </div>
 
